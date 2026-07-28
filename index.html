@@ -2445,7 +2445,8 @@ const SHARE = ${json};
     $('mview').innerHTML = '<div class="mv-head">各品种去重患者数（当前口径）</div><table><thead><tr><th>品种</th><th class="num">患者数</th><th class="num">患者占比</th><th class="num">销量(转化后数量)</th></tr></thead><tbody>'+rows+'</tbody></table><div class="bars">'+bars+'</div>';
   }
   function renderCity(){
-    const fd = SHARE.data[st.cat][st.focus].charts.city||[];
+    const fd = (SHARE.data[st.cat][st.focus] && SHARE.data[st.cat][st.focus].charts.city) || [];
+    if(!SHARE.data[st.cat][st.focus]){ $('mview').innerHTML='<div class="empty">该焦点品种在当前适应症下暂无数据</div>'; return; }
     let rows='', bars='';
     fd.forEach(x=>{
       const tot=x.f+x.c||1;
@@ -2456,6 +2457,7 @@ const SHARE = ${json};
     $('mview').innerHTML = '<div class="mv-head">各城市去重患者数：焦点品种 vs 竞品合计（TOP15）</div><table><thead><tr><th>城市</th><th class="num">焦点患者数</th><th class="num">竞品患者数</th><th class="num">焦点占比</th></tr></thead><tbody>'+rows+'</tbody></table><div class="bars">'+bars+'</div>';
   }
   function renderTrend(){
+    if(!SHARE.data[st.cat][st.focus]){ $('mview').innerHTML='<div class="empty">该焦点品种在当前适应症下暂无数据</div>'; return; }
     const t = (SHARE.data[st.cat][st.focus].charts.trend)||{months:[],fP:[],cP:[],fQ:[],cQ:[]};
     const metric = st.trendMetric;
     const fD = metric==='patients'? t.fP : t.fQ;
@@ -2478,6 +2480,7 @@ const SHARE = ${json};
     $('mview').innerHTML='<div class="mv-head">月度趋势（'+(metric==='patients'?'去重患者数':'转化后数量')+'）</div>'+svg;
   }
   function renderProfile(){
+    if(!SHARE.data[st.cat][st.focus]){ $('mview').innerHTML='<div class="empty">该焦点品种在当前适应症下暂无数据</div>'; return; }
     const p = SHARE.data[st.cat][st.focus].charts.profile||{age:[],sex:[]};
     let ageRows=p.age.map(b=>'<tr><td>'+b.label+'</td><td class="num">'+b.fPct+'%</td><td class="num">'+b.cPct+'%</td></tr>').join('');
     let ageBars=p.age.map(b=>{
@@ -2516,8 +2519,9 @@ const SHARE = ${json};
   }
   function renderMview(){
     const el=$('mview'); if(!el) return;
-    const fd = SHARE.data[st.cat] && SHARE.data[st.cat][st.focus];
-    if(!fd){ el.innerHTML='<div class="empty">该适应症 / 品种组合暂无数据</div>'; return; }
+    const catData = SHARE.data[st.cat];
+    if(!catData || !catData._charts){ el.innerHTML='<div class="empty">该适应症暂无数据</div>'; return; }
+    const fd = catData[st.focus];
     const m=st.mview;
     if(m==='share') renderShare();
     else if(m==='city') renderCity();
