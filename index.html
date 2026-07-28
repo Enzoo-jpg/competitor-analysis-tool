@@ -2246,6 +2246,8 @@ function buildShareData(opts){
       topN,
       sortBy: STATE.sortBy,
       compCount: allProducts.length-1,
+      prodMask: STATE.prodMask,
+      prodLetterMap: STATE.prodMask==='on' ? {...PROD_LETTER} : {},
       generatedAt: fmtD(new Date()),
     },
     opts: { sections: sec, multi: mv },
@@ -2372,6 +2374,13 @@ const SHARE = ${json};
   const modes=[]; if(hasDoctor)modes.push('doctor'); if(hasHosp)modes.push('hospital');
   const mvKeys=[]; if(mv.share)mvKeys.push('share'); if(mv.city)mvKeys.push('city'); if(mv.trend)mvKeys.push('trend'); if(mv.profile)mvKeys.push('profile'); if(mv.hosp)mvKeys.push('hosp');
   const st = { cat: SHARE.meta.catDefault, focus: SHARE.meta.focusDefault, mode: modes[0]||'doctor', sort: SHARE.meta.sortBy, mview: mvKeys[0]||'share', trendMetric:'patients', lockHosp:'', prodFilter:null };
+
+  // 产品脱敏展示名（与主工具一致：焦点→本品，竞品→A品/B品…）
+  function prodLabel(name){
+    if(SHARE.meta.prodMask !== 'on') return name;
+    if(name === st.focus) return '本品';
+    return SHARE.meta.prodLetterMap[name] || name;
+  }
 
   function getRows(side){
     const slice = (SHARE.data[st.cat] && SHARE.data[st.cat][st.focus] && SHARE.data[st.cat][st.focus][side][st.mode]) || [];
