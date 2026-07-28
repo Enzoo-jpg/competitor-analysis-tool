@@ -1,1 +1,2371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>药品竞品分析 · 交互看板</title>
+<script src="xlsx.full.min.js"></script>
+<script src="chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#f4f6fa; --panel:#ffffff; --ink:#1f2937; --muted:#6b7280;
+    --line:#e5e7eb; --brand:#305496; --brand2:#4472C4; --accent:#2e7d32;
+    --opp:#fff2cc; --opp-line:#e6b800; --shadow:0 1px 3px rgba(0,0,0,.08);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+       background:var(--bg);color:var(--ink);font-size:13px;line-height:1.5;}
+  header{background:linear-gradient(135deg,#305496,#4472C4);color:#fff;padding:14px 22px;
+         box-shadow:var(--shadow);}
+  header h1{margin:0;font-size:18px;font-weight:700;letter-spacing:.5px;}
+  header p{margin:3px 0 0;font-size:12px;opacity:.85;}
+  .wrap{max-width:1480px;margin:0 auto;padding:16px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+        box-shadow:var(--shadow);padding:16px;margin-bottom:16px;}
+  .card h2{margin:0 0 12px;font-size:14px;color:var(--brand);
+           border-left:4px solid var(--brand);padding-left:8px;}
 
+  /* upload */
+  #drop{border:2px dashed #b9c4dd;border-radius:10px;padding:28px;text-align:center;
+        background:#f8faff;color:var(--muted);transition:.2s;cursor:pointer;}
+  #drop.hover{border-color:var(--brand);background:#eef3ff;color:var(--brand);}
+  #drop b{color:var(--brand);}
+  #fileInput{display:none;}
+  .status{margin-top:10px;font-size:12px;color:var(--accent);}
+  .status.err{color:#c62828;}
+
+  /* loading overlay */
+  #loading{position:fixed;inset:0;background:rgba(244,246,250,.82);
+           display:none;align-items:center;justify-content:center;z-index:9999;}
+  #loading .box{background:#fff;border:1px solid var(--line);border-radius:14px;padding:30px 42px;
+        box-shadow:0 8px 30px rgba(0,0,0,.12);text-align:center;min-width:320px;}
+  #loading .spin{width:42px;height:42px;border:4px solid #dbe3f3;border-top-color:var(--brand);
+        border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  #loading .lt{font-size:14px;font-weight:700;color:var(--ink);}
+  #loading .ls{font-size:12px;color:var(--muted);margin-top:7px;min-height:16px;}
+  #loading .bar{height:6px;border-radius:4px;background:#eef1f7;margin-top:14px;overflow:hidden;}
+  #loading .bar > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#305496,#4472C4);
+        transition:width .15s;}
+
+  /* controls */
+  .controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+            gap:14px;}
+  .ctl label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:600;}
+  select,input[type=number],input[type=date]{width:100%;padding:7px 9px;border:1px solid var(--line);
+        border-radius:7px;font-size:13px;background:#fff;color:var(--ink);}
+  .switch{display:flex;align-items:center;gap:8px;}
+  .switch input{width:16px;height:16px;}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;}
+  .tab{padding:7px 14px;border:1px solid var(--line);border-radius:20px;background:#fff;
+       cursor:pointer;font-size:13px;user-select:none;}
+  .tab.active{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:600;}
+  .comp-list{max-height:160px;overflow:auto;border:1px solid var(--line);border-radius:7px;
+             padding:8px;background:#fff;}
+  .comp-list label{display:flex;align-items:center;gap:7px;font-weight:400;margin:0 0 5px;
+                   font-size:12.5px;cursor:pointer;}
+  .comp-ops{display:flex;gap:10px;margin-bottom:6px;font-size:12px;color:var(--brand);}
+  .comp-ops a{cursor:pointer;text-decoration:underline;}
+  .btn{background:var(--brand);color:#fff;border:none;padding:9px 18px;border-radius:8px;
+       font-size:13px;font-weight:600;cursor:pointer;transition:.15s;}
+  .btn:hover{background:#264272;}
+  .btn.ghost{background:#fff;color:var(--brand);border:1px solid var(--brand);}
+  .btn.share{background:#2e7d4f;color:#fff;}
+  .btn.share:hover{background:#245f3d;}
+  .meta{font-size:12px;color:var(--muted);margin:6px 0 0;}
+  .meta b{color:var(--ink);}
+
+  /* results */
+  .tables{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media(max-width:1000px){.tables{grid-template-columns:1fr;}}
+  .tbl-card{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;}
+  .tbl-head{background:var(--brand2);color:#fff;padding:10px 14px;font-weight:700;font-size:13.5px;
+            display:flex;justify-content:space-between;align-items:center;}
+  .tbl-head .sub{font-weight:400;font-size:11.5px;opacity:.9;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--line);}
+  th{background:#eef2f9;color:#374151;font-weight:600;position:sticky;top:0;font-size:12px;}
+  tbody tr:hover{background:#f5f8ff;}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+  .opp{background:var(--opp)!important;}
+  .opp td:first-child{border-left:3px solid var(--opp-line);}
+  .rank{color:var(--muted);width:28px;text-align:center;}
+  .legend{font-size:11.5px;color:var(--muted);margin-top:8px;}
+  .legend .sw{display:inline-block;width:12px;height:12px;background:var(--opp);
+              border:1px solid var(--opp-line);border-radius:3px;vertical-align:-1px;margin-right:4px;}
+  .bars{margin-top:12px;padding:12px;border-top:1px dashed var(--line);}
+  .bars-title{margin-top:12px;padding-top:8px;font-size:12px;font-weight:700;color:var(--muted);}
+  /* 视图切换 Tab */
+  .view-tabs{display:flex;gap:6px;margin:8px 0;}
+  .vtab{border:1px solid var(--line);background:#f8faff;color:var(--muted);
+        padding:4px 13px;border-radius:6px;font-size:12px;cursor:pointer;transition:.15s;}
+  .vtab:hover{border-color:var(--brand);color:var(--brand);}
+  .vtab.active{background:var(--brand);color:#fff;border-color:var(--brand);}
+  .bar-row{display:flex;align-items:center;gap:8px;margin-bottom:5px;font-size:11.5px;}
+  .bar-name{width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#374151;}
+  .bar-track{flex:1;background:#eef2f9;border-radius:4px;height:16px;position:relative;}
+  .bar-fill{height:100%;background:var(--brand2);border-radius:4px;}
+  .bar-val{width:46px;text-align:right;color:var(--muted);}
+  .empty{color:var(--muted);padding:30px;text-align:center;}
+  .hidden{display:none;}
+  .footer{text-align:center;color:var(--muted);font-size:11px;padding:10px;}
+
+  /* 多维分析 */
+  .chart-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+  .chart-tab{padding:7px 14px;border:1px solid var(--line);border-radius:20px;background:#fff;
+       cursor:pointer;font-size:13px;user-select:none;}
+  .chart-tab.active{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:600;}
+  .chart-cat-sel{margin-left:auto;align-self:center;border:1px solid var(--line);border-radius:7px;padding:6px 10px;font-size:13px;color:var(--ink);background:#fff;min-width:120px;cursor:pointer;}
+  .chart-box{position:relative;width:100%;height:360px;}
+  .chart-meta{font-size:12px;color:var(--muted);margin-top:8px;}
+  .chart-note{font-size:11.5px;color:var(--muted);margin-top:6px;background:#f8faff;
+              border-left:3px solid var(--brand2);padding:7px 10px;border-radius:4px;}
+  .sub-ctl{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap;}
+  .sub-ctl label{font-size:12px;color:var(--muted);font-weight:600;}
+  .mini-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px;}
+  .mini-table th,.mini-table td{padding:5px 8px;border-bottom:1px solid var(--line);}
+  .mini-table th{background:#eef2f9;color:#374151;font-weight:600;text-align:right;}
+  .mini-table th:first-child,.mini-table td:first-child{text-align:left;}
+  .mini-table td.num{text-align:right;font-variant-numeric:tabular-nums;}
+  .c-focus{color:var(--brand);font-weight:600;}
+  /* 下钻：可点击行 */
+  .clickable-row{cursor:pointer;transition:background .15s;}
+  .clickable-row:hover{background:#f0f4ff;}
+  .hosp-link{color:var(--brand);font-weight:600;text-decoration:none;border-bottom:1px dashed var(--brand);}
+  .clickable-row:hover .hosp-link{text-decoration:none;}
+  .back-btn{display:inline-block;cursor:pointer;color:var(--brand);font-size:12.5px;font-weight:600;
+             padding:3px 10px;background:#eef2f9;border-radius:4px;transition:background .15s;}
+  .back-btn:hover{background:#dce3f1;}
+
+  /* 焦点品种选择表 */
+  #focusPickTable th, #focusPickTable td{padding:6px 10px;}
+  #focusPickTable th{background:#eef2f9;}
+  .focus-row{cursor:pointer;transition:background .15s;}
+  .focus-row:hover{background:#f0f4ff;}
+  .focus-row.selected{background:var(--brand);}
+  .focus-row.selected td{color:#fff;}
+  .focus-row.selected .rank{color:#fff;}
+
+  /* 导出选项弹窗 */
+  .modal-mask{position:fixed;inset:0;background:rgba(20,30,45,.45);display:flex;align-items:center;justify-content:center;z-index:999;padding:20px;}
+  .modal-mask.hidden{display:none;} /* 确保 hidden 优先级高于 modal-mask 自身的 display:flex */
+  .modal{background:#fff;border-radius:12px;width:580px;max-width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(20,40,70,.25);}
+  .modal-head{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line);}
+  .modal-head h3{margin:0;font-size:16px;color:var(--brand);}
+  .modal-x{background:none;border:none;font-size:24px;line-height:1;color:var(--muted);cursor:pointer;padding:0 4px;}
+  .modal-x:hover{color:var(--ink);}
+  .modal-body{padding:4px 20px;overflow:auto;}
+  .opt-group{padding:13px 0;border-bottom:1px solid #f0f3f8;}
+  .opt-group:last-child{border-bottom:none;}
+  .opt-title{font-size:13px;font-weight:700;color:var(--ink);margin-bottom:9px;}
+  .opt-hint{font-weight:400;font-size:11px;color:var(--muted);}
+  .opt-checks{display:flex;flex-wrap:wrap;gap:8px 18px;}
+  .opt-checks label{display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;color:#33405a;}
+  .opt-checks input{width:15px;height:15px;accent-color:var(--brand);}
+  .opt-checks .all-link{color:var(--brand);font-size:12px;cursor:pointer;text-decoration:underline;}
+  .modal-foot{display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:1px solid var(--line);}
+  .opt-done{margin-top:14px;padding:14px 16px;background:#eef6f0;border:1px solid #bfe0cc;border-radius:9px;}
+  .done-row{font-size:14px;color:#245f3d;margin-bottom:6px;}
+  .done-ico{margin-right:6px;}
+  .done-txt{font-size:13px;color:#33405a;margin:6px 0;}
+  .done-list{font-size:12.5px;color:#33405a;margin:6px 0 10px;padding-left:20px;}
+  .done-list li{margin:4px 0;line-height:1.6;}
+  .done-note{font-size:11px;color:var(--muted);margin:8px 0 0;line-height:1.5;}
+  .opt-done code{background:#e3e8f0;padding:1px 5px;border-radius:4px;font-size:11.5px;}
+  .share-link-box{margin:12px 0;text-align:center;}
+  .share-link-row{display:flex;gap:8px;margin-bottom:12px;}
+  .share-link-input{flex:1;padding:7px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px;background:#f8fafc;color:var(--text);font-family:inherit;}
+  .share-qr{display:inline-block;padding:10px;background:#fff;border:1px solid var(--line);border-radius:8px;}
+  .share-remote{margin-top:14px;border-top:1px dashed var(--line);padding-top:12px;}
+  .share-remote .btn.share{width:100%;}
+  .remote-tip{font-size:12px;color:var(--muted);margin:8px 0 0;line-height:1.5;}
+  .remote-tip code{background:#e3e8f0;padding:1px 5px;border-radius:4px;font-size:11.5px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>药品竞品分析 · 交互看板</h1>
+  <p>上传销售数据底表 → 按时间窗口 / 竞品 / 适应症 / 脱敏 自由切换，实时生成「焦点品种 vs 同类竞品」双表</p>
+</header>
+
+<div class="wrap">
+
+  <!-- 上传 -->
+  <div class="card">
+    <h2>① 上传数据底表</h2>
+    <div id="drop">
+      <p>📥 点击或拖拽 Excel 文件到此处（支持 .xlsx / .xls，含「底表」Sheet）</p>
+      <p style="font-size:11.5px;">文件仅在本地浏览器解析，<b>不会上传任何服务器</b></p>
+      <input type="file" id="fileInput" accept=".xlsx,.xls">
+    </div>
+    <div id="status" class="status hidden"></div>
+  </div>
+
+  <!-- 焦点品种选择 -->
+  <div class="card hidden" id="focusCard">
+    <h2>② 焦点品种选择（点击任意品种设为焦点）</h2>
+    <div class="meta" id="focusPickMeta"></div>
+    <div style="max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:8px;">
+      <table id="focusPickTable">
+        <thead><tr><th class="rank">#</th><th>品种</th><th class="num">去重患者数</th><th class="num">销量(转化后数量)</th><th class="num">覆盖医院数</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="legend">提示：点击任一品种即将其设为<b>左表焦点品种</b>，右表竞品自动更新为其它全部品种。统计口径 = 当前<b>时间窗口</b> + 当前<b>适应症大类</b>。</div>
+  </div>
+
+  <!-- 控制面板 -->
+  <div class="card hidden" id="ctrlCard">
+    <h2>③ 分析维度</h2>
+    <div class="controls">
+      <div class="ctl">
+        <label>焦点品种（左表品种，可自由切换重算）</label>
+        <select id="focusSel"></select>
+      </div>
+      <div class="ctl">
+        <label>时间窗口（影响 DOT 计算口径）</label>
+        <select id="timePreset">
+          <option value="all">全部数据</option>
+          <option value="3">近 3 个月</option>
+          <option value="6">近 6 个月</option>
+          <option value="12" selected>近 12 个月</option>
+          <option value="custom">自定义区间</option>
+        </select>
+        <div id="customRange" class="hidden" style="display:flex;gap:6px;margin-top:6px;">
+          <input type="date" id="dateStart">
+          <input type="date" id="dateEnd">
+        </div>
+      </div>
+
+      <div class="ctl">
+        <label>适应症大类</label>
+        <div class="tabs" id="catTabs">
+          <div class="tab active" data-cat="整体">整体</div>
+          <div class="tab" data-cat="皮科">皮科</div>
+          <div class="tab" data-cat="消化">消化</div>
+          <div class="tab" data-cat="关节">关节</div>
+          <div class="tab" data-cat="其他">其他</div>
+        </div>
+      </div>
+
+      <div class="ctl">
+        <label>显示行数 Top N</label>
+        <input type="number" id="topN" value="30" min="5" max="200" step="5">
+      </div>
+
+      <div class="ctl">
+        <label>排序方式</label>
+        <select id="sortBy">
+          <option value="patients">按患者人数降序</option>
+          <option value="dot">按 DOT 降序</option>
+        </select>
+      </div>
+
+      <div class="ctl">
+        <label>医生脱敏（医院名 / 科室 保持明文）</label>
+        <select id="maskMode" style="padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;color:#374151;max-width:260px;">
+          <option value="off">不脱敏（显示真名）</option>
+          <option value="letter" selected>字母代号 A/B/C…</option>
+          <option value="surname">保留姓氏 + 医生（张医生）</option>
+        </select>
+        <span style="font-size:12px;color:#6b7280;margin-left:6px;">仅医生名打码，可外发</span>
+      </div>
+    </div>
+
+    <div class="ctl" style="margin-top:14px;">
+      <label>右表竞品（同类合并，可多选；默认含除焦点外全部品种）</label>
+      <div class="comp-ops">
+        <a id="compAll">全选</a> · <a id="compNone">清空</a> · <a id="compInv">反选</a>
+      </div>
+      <div class="comp-list" id="compList"></div>
+    </div>
+
+    <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <button class="btn" id="recalc">重新计算</button>
+      <button class="btn ghost" id="exportBtn">⬇ 一键导出全部 (Excel)</button>
+      <button class="btn share" id="shareBtn">🔒 导出分享版 (可选内容)</button>
+      <span class="meta" id="metaLine"></span>
+    </div>
+  </div>
+
+  <!-- 结果 -->
+  <div class="card hidden" id="resCard">
+    <h2>④ 分析结果</h2>
+    <div class="tables">
+      <div class="tbl-card">
+        <div class="tbl-head">
+          <span id="leftTitle">焦点品种</span>
+          <span class="sub" id="leftSub"></span>
+        </div>
+        <div class="view-tabs">
+          <button class="vtab active" data-side="left" data-view="doctor">医生明细</button>
+          <button class="vtab" data-side="left" data-view="hospital">医院汇总</button>
+        </div>
+        <div style="max-height:560px;overflow:auto;">
+          <table id="leftTable">
+            <thead id="leftHead"></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="bars-title" id="leftBarsTitle">TOP 医院（按患者数合计，医生以 / 间隔）</div>
+        <div class="bars" id="leftBars"></div>
+      </div>
+
+      <div class="tbl-card">
+        <div class="tbl-head">
+          <span id="rightTitle">同类竞品整体</span>
+          <span class="sub" id="rightSub"></span>
+        </div>
+        <div class="view-tabs">
+          <button class="vtab active" data-side="right" data-view="doctor">医生明细</button>
+          <button class="vtab" data-side="right" data-view="hospital">医院汇总</button>
+        </div>
+        <div style="max-height:560px;overflow:auto;">
+          <table id="rightTable">
+            <thead id="rightHead"></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="bars-title" id="rightBarsTitle">TOP 医院（按患者数合计，医生以 / 间隔）</div>
+        <div class="bars" id="rightBars"></div>
+      </div>
+    </div>
+    <div class="legend"><span class="sw"></span>黄色高亮 = <b>机会市场</b>：该医院+科室在竞品整体表中排名靠前，但焦点品种尚未覆盖（左表 TOP15 未出现）。</div>
+  </div>
+
+  <!-- 多维分析 -->
+  <div class="card hidden" id="chartCard">
+    <h2>⑤ 多维分析视角</h2>
+    <div class="chart-tabs" id="chartTabs">
+      <div class="chart-tab active" data-chart="share">竞品份额</div>
+      <div class="chart-tab" data-chart="city">城市覆盖</div>
+      <div class="chart-tab" data-chart="trend">时间趋势</div>
+      <div class="chart-tab" data-chart="profile">患者画像差异</div>
+      <div class="chart-tab" data-chart="hosp">医院份额</div>
+      <select id="chartCatSel" class="chart-cat-sel" title="切换适应症大类（与顶部联动）"></select>
+    </div>
+
+    <!-- 竞品份额 -->
+    <div class="chart-pane" data-pane="share">
+      <div class="chart-box"><canvas id="chartShare"></canvas></div>
+      <div class="chart-note">口径：当前适应症大类 + 时间窗口内，所选焦点品种与竞品的<b>去重患者数</b>占比（同一患者按所购品种分别计入）。柱形按患者数降序，焦点品种以品牌色突出。</div>
+      <div id="shareTable" class="mini-table"></div>
+    </div>
+
+    <!-- 城市覆盖 -->
+    <div class="chart-pane hidden" data-pane="city">
+      <div class="chart-box"><canvas id="chartCity"></canvas></div>
+      <div class="chart-note">口径：按院名/收款方式(医保统筹)解析地市。焦点品种 vs 竞品合计的<b>去重患者数</b>城市分布（取患者数 TOP15 城市）。解析覆盖率约 99.9%，其余归「其他」。</div>
+      <div id="cityTable" class="mini-table"></div>
+    </div>
+
+    <!-- 时间趋势 -->
+    <div class="chart-pane hidden" data-pane="trend">
+      <div class="sub-ctl">
+        <label>指标</label>
+        <select id="trendMetric">
+          <option value="patients">去重患者数</option>
+          <option value="qty">转化后数量(销量)</option>
+        </select>
+      </div>
+      <div class="chart-box"><canvas id="chartTrend"></canvas></div>
+      <div class="chart-note">口径：当前适应症大类 + 时间窗口内，按月聚合。焦点品种 vs 竞品合计两条曲线，对比增长走势与季节性。</div>
+    </div>
+
+    <!-- 患者画像差异 -->
+    <div class="chart-pane hidden" data-pane="profile">
+      <div class="chart-box"><canvas id="chartAge"></canvas></div>
+      <div class="chart-box" style="height:280px;margin-top:14px;"><canvas id="chartSex"></canvas></div>
+      <div class="chart-note">口径：按 oneid+开票抬头 去重患者，取年龄/性别。焦点品种 vs 竞品合计的<b>年龄分层占比</b>与<b>性别占比</b>对比（已归一化为组内百分比，便于跨规模比较）。年龄/性别缺失约 1% 不计入分布。</div>
+    </div>
+
+    <!-- 医院份额：锁定单家医院，看各品种患者份额 -->
+    <div class="chart-pane hidden" data-pane="hosp">
+      <div class="sub-ctl">
+        <label>锁定医院</label>
+        <select id="lockHospital"></select>
+      </div>
+      <div class="chart-box"><canvas id="chartHosp"></canvas></div>
+      <div class="chart-note">口径：锁定单家医院，展示该医院在当前<b>适应症大类 + 时间窗口</b>内各品种的<b>去重患者数</b>（按 oneid+开票抬头）占比。同一患者若购多个品种会分别计入，故各品种占比之和可能 &gt; 100%。焦点品种以品牌色突出。</div>
+      <div id="hospTable" class="mini-table"></div>
+    </div>
+  </div>
+
+  <div class="footer">本地离线工具 · 数据不出本机 · 适配 销售数据汇总.xlsx 结构</div>
+</div>
+
+<!-- 导出分享版 · 内容选项弹窗 -->
+<div class="modal-mask hidden" id="shareModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>导出分享版 · 选择内容</h3>
+      <button class="modal-x" id="shareModalClose" title="关闭">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="opt-group">
+        <div class="opt-title">适应症大类 <span class="opt-hint">（接收方可在选中范围内切换）</span> <span class="all-link" data-all="cats">全选</span></div>
+        <div class="opt-checks" id="optCats"></div>
+      </div>
+      <div class="opt-group">
+        <div class="opt-title">焦点品种 <span class="opt-hint">（接收方可切换；留空 = 全部品种）</span> <span class="all-link" data-all="products">全选</span></div>
+        <div class="opt-checks" id="optProducts"></div>
+      </div>
+      <div class="opt-group">
+        <div class="opt-title">内容板块</div>
+        <div class="opt-checks" id="optSections">
+          <label><input type="checkbox" data-sec="doctor" checked> 医生明细表（左/右）</label>
+          <label><input type="checkbox" data-sec="hospital" checked> 医院汇总表（左/右）</label>
+          <label><input type="checkbox" data-sec="multi" checked> 多维分析视角</label>
+        </div>
+      </div>
+      <div class="opt-group" id="optMultiGroup">
+        <div class="opt-title">多维分析子项 <span class="opt-hint">（仅勾选「多维分析视角」时生效）</span> <span class="all-link" data-all="multi">全选</span></div>
+        <div class="opt-checks" id="optMulti">
+          <label><input type="checkbox" data-mv="share" checked> 竞品份额</label>
+          <label><input type="checkbox" data-mv="city" checked> 城市视角</label>
+          <label><input type="checkbox" data-mv="trend" checked> 时间趋势</label>
+          <label><input type="checkbox" data-mv="profile" checked> 患者画像</label>
+          <label><input type="checkbox" data-mv="hosp" checked> 医院份额</label>
+        </div>
+      </div>
+      <div class="opt-done hidden" id="shareDone">
+        <div class="done-row"><span class="done-ico">✅</span><b>分享版已生成</b></div>
+        <div class="share-link-box">
+          <div class="share-link-row">
+            <input type="text" id="shareLink" readonly class="share-link-input" />
+            <button class="btn ghost" id="shareCopyBtn">📋 复制链接</button>
+          </div>
+          <div id="shareQr" class="share-qr"></div>
+        </div>
+        <p class="done-txt">手机<strong>同 WiFi</strong>扫上方二维码即可打开查看（数据不出本机，最安全）。</p>
+        <div class="share-remote">
+          <button class="btn share" id="shareRemoteBtn">🚀 远程部署（公网链接）</button>
+          <p class="remote-tip" id="remoteTip"></p>
+        </div>
+        <p class="done-note" id="shareNote"></p>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" id="shareModalCancel">取消</button>
+      <button class="btn share" id="shareModalOk">确认导出</button>
+    </div>
+  </div>
+</div>
+
+<script src="indication_map.js"></script>
+<script src="qrcode.min.js"></script>
+<script>
+/* ============ 全局状态 ============ */
+let RAW = [];            // 解析后的行对象数组
+let PRODUCTS = [];       // 品种列表
+let DATE_MIN=null, DATE_MAX=null;
+const STATE = {
+  focus: null,
+  competitors: new Set(),
+  cat: '整体',
+  topN: 30,
+  sortBy: 'patients',
+  maskMode: 'letter',
+  timePreset: '12',
+  customStart: null,
+  customEnd: null,
+  chartTab: 'share',
+  trendMetric: 'patients',
+  lockHospital: null,   // 医院份额视图锁定的医院
+  viewMode: { left: 'doctor', right: 'doctor' },  // 每表视图: doctor=医生明细 / hospital=医院汇总
+};
+// 最近一次计算结果（供导出复用，保证与屏幕一致）
+let LAST = { left: [], right: [], meta: {} };
+// 双视图聚合结果(医生级 + 医院级)，切换 Tab 时复用，避免重算
+let GVIEW = { left: { doctor: [], hosp: [] }, right: { doctor: [], hosp: [] } };
+let GMETA = { catTxt: '', winTxt: '', leftRows: 0, rightRows: 0, focus: '', compCount: 0 };
+
+/* ============ 字段映射 ============ */
+// 逻辑字段 -> 候选表头名（按顺序匹配）
+const FIELD_HEADERS = {
+  time:    ['销售时间'],
+  product: ['商品名称'],
+  ind:     ['适应症'],
+  convQty: ['转化后数量'],
+  oneid:   ['oneid'],
+  invoice: ['开票抬头'],
+  hosp:    ['医疗单位','首诊医院'],
+  dept:    ['处方科室'],
+  doctor:  ['处方医生'],
+  pay:     ['收款方式'],
+  age:     ['年龄'],
+  sex:     ['性别'],
+};
+let COL = {}; // 逻辑字段 -> 实际列名
+
+function resolveColumns(headers){
+  COL = {};
+  for(const f in FIELD_HEADERS){
+    for(const cand of FIELD_HEADERS[f]){
+      if(headers.includes(cand)){ COL[f]=cand; break; }
+    }
+  }
+  return COL;
+}
+
+/* ============ 适应症归一化 ============ */
+function categorize(raw){
+  if(!raw) return [null,null];
+  const s = String(raw).trim();
+  if(!s) return [null,null];
+  if(window.IND_MAP[s]) return window.IND_MAP[s];
+  const cl = s.replace(/[\s，。、；：""''（）()\[\]]+/g,'');
+  if(window.IND_MAP[cl]) return window.IND_MAP[cl];
+  return [s,'未分类'];
+}
+/* 适应症无法归类时, 用原始科室关键词兜底定大类 */
+function categorizeByDept(rawDept){
+  const d = (rawDept||'').trim();
+  if(/皮肤|皮科|皮研/.test(d)) return '皮科';
+  if(/风湿|风免/.test(d)) return '关节';
+  if(/消化/.test(d)) return '消化';
+  if(/呼吸|过敏/.test(d)) return '其他';
+  return '其他';
+}
+/* 科室分配: 优先保留原始科室(仅做标准化归一); 适应症只用于"适应症大类"Tab筛选，不再覆盖科室字段 */
+function assignDept(indRaw, rawDept){
+  const d = (rawDept||'').trim();
+  // ① 原始科室有值 → 直接用它（按关键词归一为标准科名，不改变归属）
+  if(d){
+    if(/皮肤|皮科|皮研/.test(d)) return '皮肤科';
+    if(/风湿|风免/.test(d)) return '风湿免疫科';
+    if(/消化/.test(d)) return '消化内科';
+    if(/呼吸/.test(d)) return '呼吸科';
+    if(/过敏/.test(d)) return '过敏反应科';
+    return d;
+  }
+  // ② 原始科室为空 → 才用适应症大类兜底推导一个科室
+  const [ni, cat] = categorize(indRaw);
+  if(cat && cat!=='未分类'){
+    return ({'皮科':'皮肤科','消化':'消化内科','关节':'风湿免疫科','其他':'其他科'})[cat] || '未知';
+  }
+  return '未知';
+}
+/* 医生名清洗: 分隔符取后(斜杠/顿号/逗号/多空格) + 笔误归一化 + 同音合并 */
+const DOCTOR_MERGE_MAP = {"周利":"周舟","张宏奎":"张忠奎","宋文韬":"宋文涛","胡玉良":"胡于良","罗雪儿":"王雪儿","黄静云":"黄静红","周夕溪":"周夕湲","陈纯诗":"陈纯涛","陈纯谢":"陈纯清","邓伶俐":"邓玲俐","王晶燕":"王景燕","王玉娟":"陈玉娟","任术辉":"任术珲","任真伟":"任真玮","何丽娟":"刘丽娟","陈大维":"郑大维","衡坤鲲":"衡坤","唐海凌":"唐海玲","陈新龙邦":"陈新龙","周传福":"周继福","徐建中":"许建中","李松柱":"李松桂","王慧":"王超","于均封":"于均峰","张文":"张鹤","刘云飞":"何云飞","李丹丹那":"李丹丹","李滢":"李莹","许建忠":"许建中","王艺醇":"王艺淳","刘":"刘旺","周俊":"田俊","李永朋":"李永明","林建平":"林建华","杨浩":"杨洁","胡华英":"汪华英","朱世辛":"朱世幸","唐扬婷":"唐杨婷","将美亚":"蒋美亚","袁红海":"袁洪海","胡杰伟":"胡光伟","郑":"张","张兴霞":"张兴露","曾":"曾勇","彭红梅":"彭玉梅","文建军":"文继军"};
+
+function normalizeDoctorName(rawDoc){
+  let s = (rawDoc||'').trim();
+  if(!s) return '';
+  /* 1a. 斜杠 */
+  if(s.indexOf('/')>=0){
+    const parts = s.split('/').map(p=>p.trim()).filter(Boolean);
+    if(parts.length>=2) s = parts[parts.length-1];
+  }
+  /* 1b. 顿号 */
+  if(s.indexOf('、')>=0){
+    const parts = s.split('、').map(p=>p.trim()).filter(Boolean);
+    if(parts.length>=2) s = parts[parts.length-1];
+  }
+  /* 1c. 逗号 */
+  if(s.indexOf('，')>=0 || (s.indexOf(',')>=0 && s.split(',').length>=2)){
+    const sep = s.indexOf('，')>=0 ? '：' : ',';
+    const parts = s.split(sep==='：'?'，':',').map(p=>p.trim()).filter(Boolean);
+    if(parts.length>=2) s = parts[parts.length-1];
+  }
+  /* 1d. 多空格分隔(如 "刘丽娟  李超" -> "李超") */
+  if((new RegExp('\\s{2,}')).test(s)){
+    const parts = s.split(new RegExp('\\s{2,}')).map(p=>p.trim()).filter(Boolean);
+    if(parts.length>=2 && parts.every(p=>(new RegExp('^[\\u4e00-\\u9fff]{2,4}$')).test(p))){
+      s = parts[parts.length-1];
+    }
+  }
+  /* 2-5. 基础清洗 */
+  s = s.replace(/[。.·．]+$/,'');
+  s = s.replace(/^[a-z]+/,'');
+  s = s.replace(/\s+/g,'');
+  return s;
+}
+
+function applyMerge(name){
+  return name && DOCTOR_MERGE_MAP[name] ? DOCTOR_MERGE_MAP[name] : (name||'');
+}
+
+function cleanDoctor(rawDoc){
+  return applyMerge(normalizeDoctorName(rawDoc));
+}
+
+/* ============ 医院名归一化(用户 2026-07-26 确认) ============ */
+const HOSP_NORM_MAP = {
+  /* 九〇三医院家族 -> 江油市九〇三医院 */
+  "九〇三医院":"江油市九〇三医院",
+  "九O三医院":"江油市九〇三医院",
+  "江油市九〇三医院":"江油市九〇三医院",
+  /* 成都中医药大学附属医院家族 */
+  "成都中医药大学附属医院(四川省中医医院)":"成都中医药大学附属医院",
+  "成都中医药大学附属医院/四川省中医院":"成都中医药大学附属医院",
+  /* 攀枝花 */
+  "攀枝花中西医结合医院":"攀枝花市中西医结合医院",
+  /* 华西天府 笔误(药->院) */
+  "四川大学华西天府医药":"四川大学华西天府医院",
+  /* 巴中 中医医院=中医院 */
+  "巴中市中医院":"巴中市中医医院",
+  /* 雅安职院 省级前缀 */
+  "四川省雅安职业技术学院附属医院":"雅安职业技术学院附属医院",
+  /* 交通厅 vs 交通运输厅 */
+  "四川省交通厅公路局医院":"四川省交通运输厅公路局医院"
+};
+function normalizeHospital(rawHosp){
+  const s = (rawHosp||'').trim();
+  return HOSP_NORM_MAP[s] || s;
+}
+
+/* ============ 城市解析(四川区域 DTP 数据) ============ */
+const CITY_PREF = ['成都','绵阳','德阳','广元','遂宁','内江','乐山','南充','宜宾','泸州','达州','巴中','雅安','眉山','资阳','自贡','攀枝花','凉山','甘孜','阿坝','广安'];
+const CITY_COUNTY = {
+  '简阳':'成都','江油':'绵阳','广汉':'德阳','绵竹':'德阳','什邡':'德阳','中江':'德阳',
+  '隆昌':'内江','阆中':'南充','南部':'南充','南江':'巴中','武胜':'广安','雁江':'资阳',
+  '平昌':'巴中','通江':'巴中','安岳':'资阳','合江':'泸州','资中':'内江','古蔺':'泸州',
+  '大竹':'达州','邻水':'广安','都江堰':'成都','仪陇':'南充','彭州':'成都','达川':'达州',
+  '邛崃':'成都','西昌':'凉山','仁寿':'眉山','叙永':'泸州','岳池':'广安'
+};
+const CITY_SPECIAL_HOSP = [
+  ['川北医学院附属医院','南充'],['西南医科大学','泸州'],['华西','成都'],
+  ['四川省人民医院','成都'],['成都医学院','成都'],['凉山彝族自治州','凉山'],
+  ['九〇三医院','绵阳'],['九O三医院','绵阳'],['四川省交通运输厅公路局医院','成都'],
+  ['四川省骨科医院','成都'],['四川省第四人民医院','成都'],['西部战区总医院','成都'],
+  ['三六三医院','成都'],['攀钢集团总医院','攀枝花'],['西部战区空军医院','成都'],
+  ['四川省妇幼保健院','成都'],['四川中医肝病医院','成都'],['中国人民解放军','成都']
+];
+function parseCity(hospRaw, payRaw){
+  const pay = (payRaw||'');
+  if(pay){
+    if(pay.indexOf('凉山州')>=0) return '凉山';
+    if(pay.indexOf('雁江')>=0) return '资阳';
+    for(const c of CITY_PREF){ if(pay.indexOf(c)>=0) return c; }
+  }
+  const hosp = (hospRaw||'');
+  if(hosp){
+    for(const kv of CITY_SPECIAL_HOSP){ if(hosp.indexOf(kv[0])>=0) return kv[1]; }
+    for(const k in CITY_COUNTY){ if(hosp.indexOf(k)>=0) return CITY_COUNTY[k]; }
+    for(const c of CITY_PREF){ if(hosp.indexOf(c)>=0) return c; }
+  }
+  return '其他';
+}
+
+/* ============ 日期解析 ============ */
+function toDate(v){
+  if(v instanceof Date) return isNaN(v)?null:v;
+  if(typeof v === 'string' && v.trim()){
+    // Excel 可能返回 "2026-01-01 08:43:59" 或 "2026/1/1"
+    const d = new Date(v.replace(/\//g,'-'));
+    return isNaN(d)?null:d;
+  }
+  if(typeof v === 'number'){ // Excel 序列号
+    const d = new Date((v-25569)*86400*1000);
+    return isNaN(d)?null:d;
+  }
+  return null;
+}
+
+/* ============ 加载遮罩与调度 ============ */
+let _loading = false;
+function showLoading(title, msg){
+  _loading = true;
+  const el = document.getElementById('loading');
+  el.style.display = 'flex';
+  document.getElementById('loadTitle').textContent = title || '正在处理…';
+  document.getElementById('loadMsg').textContent = msg || '';
+  const bar = document.getElementById('loadBar'); if(bar) bar.style.width = '0%';
+}
+function setLoadingMsg(msg){ if(_loading) document.getElementById('loadMsg').textContent = msg || ''; }
+function setBar(p){ if(_loading){ const i=document.getElementById('loadBar'); if(i) i.style.width = Math.max(0,Math.min(100,p))+'%'; } }
+function hideLoading(){ _loading = false; document.getElementById('loading').style.display = 'none'; }
+// 轻量异步调度：先显示遮罩，让浏览器绘制一帧后再跑重计算
+function recalcAsync(){
+  showLoading('正在重新计算', '聚合分组 / 计算患者数与 DOT…');
+  requestAnimationFrame(()=> setTimeout(recalc, 15));
+}
+
+/* ============ 文件解析 ============ */
+function parseFile(file){
+  showLoading('正在读取 Excel 文件', '准备解析，请稍候…');
+  const reader = new FileReader();
+  reader.onload = e=>{
+    // 先让遮罩绘制一帧，再做同步重解析
+    setTimeout(()=>{
+      try{
+        setLoadingMsg('正在解析工作表…');
+        const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array', cellDates:true});
+        const name = wb.SheetNames.includes('底表') ? '底表' : wb.SheetNames[0];
+        const ws = wb.Sheets[name];
+        const rows = XLSX.utils.sheet_to_json(ws, {defval:null});
+        if(!rows.length){ hideLoading(); setStatus('文件无数据行', true); return; }
+        const headers = Object.keys(rows[0]);
+        resolveColumns(headers);
+        // 校验必需字段
+        const missing = ['time','product','ind','convQty','oneid','invoice','hosp','dept','doctor']
+          .filter(f=>!COL[f]);
+        if(missing.length){
+          hideLoading();
+          setStatus('缺少必需字段: '+missing.map(m=>FIELD_HEADERS[m].join('/')).join(', '), true);
+          return;
+        }
+        setLoadingMsg('正在清洗与加载数据…');
+        setTimeout(()=>loadRows(rows), 20);
+      }catch(err){
+        hideLoading(); setStatus('解析失败: '+err.message, true);
+      }
+    }, 20);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function loadRows(rows){
+  RAW = [];
+  const seenProd = new Set();
+  let dmin=null, dmax=null;
+  const N = rows.length;
+  let i = 0;
+  const CHUNK = 6000;   // 分块处理，避免主线程长时间冻结，并给出进度反馈
+
+  function step(){
+    const end = Math.min(i+CHUNK, N);
+    for(; i<end; i++){
+      const r = rows[i];
+      const d = toDate(r[COL.time]);
+      if(!d) continue;
+      const prod = (r[COL.product]!=null)?String(r[COL.product]).trim():'';
+      if(!prod) continue;
+      const indRaw = (r[COL.ind]!=null)?String(r[COL.ind]).trim():'';
+      let [normInd, cat] = categorize(indRaw);
+      if(!cat || cat==='未分类'){ cat = categorizeByDept(r[COL.dept]); }   // 适应症空/未分类 -> 科室兜底
+      const convQty = parseFloat(r[COL.convQty]);
+      const oneid = (r[COL.oneid]!=null)?String(r[COL.oneid]).trim():'';
+      const invoice = (r[COL.invoice]!=null)?String(r[COL.invoice]).trim():'';
+      const hosp = normalizeHospital((r[COL.hosp]!=null)?String(r[COL.hosp]).trim():'');
+      const deptRaw = (r[COL.dept]!=null)?String(r[COL.dept]).trim():'';
+      const doctorRaw = (r[COL.doctor]!=null)?String(r[COL.doctor]).trim():'';
+      const payRaw = (r[COL.pay]!=null)?String(r[COL.pay]).trim():'';
+      const dept = assignDept(indRaw, deptRaw);                 // 适应症优先归科
+      const doctor = cleanDoctor(doctorRaw);                 // 完整清洗: 分隔符取后+笔误+同音合并
+      const city = parseCity(hosp, payRaw);                   // 地市解析
+      const ageRaw = (r[COL.age]!=null)?String(r[COL.age]).trim():'';
+      const sexRaw = (r[COL.sex]!=null)?String(r[COL.sex]).trim():'';
+      if(convQty==null || isNaN(convQty)) continue;
+      RAW.push({d, prod, cat, convQty, oneid, invoice, hosp, dept, doctor, city, age:ageRaw, sex:sexRaw});
+      seenProd.add(prod);
+      if(dmin==null||d<dmin) dmin=d;
+      if(dmax==null||d>dmax) dmax=d;
+    }
+    const pct = Math.round(i/N*100);
+    setLoadingMsg(`正在清洗数据… ${pct}% （${i.toLocaleString()} / ${N.toLocaleString()} 行）`);
+    setBar(pct);
+    if(i<N){ setTimeout(step, 0); }
+    else {
+      PRODUCTS = [...seenProd];
+      DATE_MIN = dmin; DATE_MAX = dmax;
+      buildControls();
+      setStatus(`已加载 ${RAW.length.toLocaleString()} 行 · 品种 ${PRODUCTS.length} 个 · 时间 ${fmtD(DATE_MIN)} ~ ${fmtD(DATE_MAX)}`, false);
+      document.getElementById('ctrlCard').classList.remove('hidden');
+      document.getElementById('resCard').classList.remove('hidden');
+      document.getElementById('chartCard').classList.remove('hidden');
+      recalcAsync();   // 收尾聚合计算，并隐藏遮罩
+    }
+  }
+  step();
+}
+
+/* ============ 控件构建 ============ */
+function buildControls(){
+  // 焦点品种：默认乌帕替尼（若存在）；控制区提供下拉框，可自由切换重算
+  const defFocus = PRODUCTS.find(p=>p.includes('乌帕替尼')) || PRODUCTS[0];
+  STATE.focus = defFocus;
+  buildCompList(defFocus);
+
+  // 焦点品种下拉框（方案A：恢复焦点切换能力）
+  const fs=document.getElementById('focusSel');
+  fs.innerHTML='';
+  PRODUCTS.forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; if(p===STATE.focus)o.selected=true; fs.appendChild(o); });
+  fs.onchange=()=>{ if(STATE.focus!==fs.value) setFocus(fs.value); };
+
+  // 默认自定义区间占位
+  if(DATE_MIN && DATE_MAX){
+    document.getElementById('dateStart').value = fmtD(DATE_MIN);
+    document.getElementById('dateEnd').value = fmtD(DATE_MAX);
+  }
+}
+
+// 竞品列表：除焦点外全部品种，默认全选
+function buildCompList(focus){
+  STATE.competitors = new Set();
+  const cl = document.getElementById('compList');
+  cl.innerHTML='';
+  PRODUCTS.forEach(p=>{
+    if(p===focus) return;
+    const lab=document.createElement('label');
+    const cb=document.createElement('input');
+    cb.type='checkbox'; cb.value=p; cb.checked=true;
+    cb.addEventListener('change', ()=>{ cb.checked?STATE.competitors.add(p):STATE.competitors.delete(p); });
+    lab.appendChild(cb); lab.appendChild(document.createTextNode(p));
+    cl.appendChild(lab);
+    STATE.competitors.add(p);
+  });
+}
+
+/* ============ 时间窗口 ============ */
+function getWindow(){
+  const p = STATE.timePreset;
+  if(p==='all') return {start:DATE_MIN, end:DATE_MAX};
+  if(p==='custom'){
+    return {
+      start: STATE.customStart? new Date(STATE.customStart): DATE_MIN,
+      end: STATE.customEnd? new Date(STATE.customEnd): DATE_MAX
+    };
+  }
+  const months = parseInt(p,10);
+  const end = DATE_MAX;
+  const start = new Date(end.getFullYear(), end.getMonth()-months+1, 1);
+  return {start, end};
+}
+
+// 当前时间窗口文本（导出复用）
+function getWinTxt(){
+  if(STATE.timePreset==='all') return '全部时间';
+  if(STATE.timePreset==='custom') return `${STATE.customStart||fmtD(DATE_MIN)} ~ ${STATE.customEnd||fmtD(DATE_MAX)}`;
+  return `近 ${STATE.timePreset} 个月`;
+}
+
+// 焦点品种选择表：列出全部品种及其统计，点击任一品种即设为焦点
+function renderProductPicker(){
+  if(!RAW.length) return;
+  const catFilter = STATE.cat==='整体'? null : STATE.cat;
+  const {start,end}=getWindow();
+  const patMap=new Map(), qtyMap=new Map(), hospMap=new Map();
+  for(const r of RAW){
+    if(r.d<start||r.d>end) continue;
+    if(catFilter && r.cat!==catFilter) continue;
+    const p=r.prod;
+    let s=patMap.get(p); if(!s){s=new Set();patMap.set(p,s);} s.add(r.oneid+'|'+r.invoice);
+    qtyMap.set(p,(qtyMap.get(p)||0)+r.convQty);
+    let h=hospMap.get(p); if(!h){h=new Set();hospMap.set(p,h);} h.add(r.hosp);
+  }
+  const items=[...patMap.entries()].map(([p,s])=>({
+    prod:p, patients:s.size, qty:qtyMap.get(p)||0, hosp:hospMap.get(p).size
+  })).sort((a,b)=>b.patients-a.patients);
+  const tbody=document.querySelector('#focusPickTable tbody');
+  tbody.innerHTML='';
+  items.forEach((it,idx)=>{
+    const tr=document.createElement('tr');
+    tr.className='focus-row'+(it.prod===STATE.focus?' selected':'');
+    tr.innerHTML=`<td class="rank">${idx+1}</td>`+
+      `<td>${esc(it.prod)}</td>`+
+      `<td class="num">${it.patients.toLocaleString()}</td>`+
+      `<td class="num">${it.qty.toLocaleString()}</td>`+
+      `<td class="num">${it.hosp.toLocaleString()}</td>`;
+    tr.addEventListener('click', ()=>{ if(STATE.focus!==it.prod) setFocus(it.prod); });
+    tbody.appendChild(tr);
+  });
+  const meta=document.getElementById('focusPickMeta');
+  if(meta) meta.innerHTML=`共 <b>${items.length}</b> 个品种 · 当前焦点：<b>${esc(STATE.focus)}</b>`;
+}
+function setFocus(p){
+  STATE.focus=p;
+  buildCompList(p);   // 焦点变化：竞品默认含除新焦点外全部品种
+  recalcAsync();
+}
+// 计算某一侧(焦点/竞品)在指定适应症大类+视图下的聚合结果（供全量导出复用）
+function computeAgg(prodSet, catFilter, mode){
+  const rows = filterRows(prodSet, catFilter);
+  const agg = mode==='hospital' ? aggregateHosp(rows) : aggregate(rows);
+  const cmp = STATE.sortBy==='dot'
+    ? ((a,b)=> b.dot-a.dot || b.patients-a.patients)
+    : ((a,b)=> b.patients-a.patients || b.dot-a.dot);
+  agg.sort(cmp);
+  return agg;
+}
+
+/* ============ 聚合 ============ */
+function aggregate(rows){
+  const groups = new Map();
+  for(const r of rows){
+    const key = r.hosp+'§'+r.dept+'§'+r.doctor;
+    let g = groups.get(key);
+    if(!g){ g={hosp:r.hosp, dept:r.dept, doctor:r.doctor, patients:new Set(), qty:0}; groups.set(key,g); }
+    g.patients.add(r.oneid+'|'+r.invoice);
+    g.qty += r.convQty;
+  }
+  const out=[];
+  for(const g of groups.values()){
+    const n=g.patients.size;
+    out.push({hosp:g.hosp, dept:g.dept, doctor:g.doctor, patients:n, dot: n? g.qty/n:0});
+  }
+  return out;
+}
+
+// 医院级聚合：仅按医疗单位分组(重新去重患者)，供"医院汇总"Tab
+function aggregateHosp(rows){
+  const groups = new Map();
+  for(const r of rows){
+    const key = r.hosp;
+    let g = groups.get(key);
+    if(!g){ g={hosp:r.hosp, patients:new Set(), qty:0, docs:new Set()}; groups.set(key,g); }
+    g.patients.add(r.oneid+'|'+r.invoice);
+    g.qty += r.convQty;
+    // 医生去重键 = 仅姓名：同一医院内同名医生（即使跨科室如皮肤科/关节科同一人）只计 1 个
+    if(r.doctor) g.docs.add(r.doctor);
+  }
+  const out=[];
+  for(const g of groups.values()){
+    const n=g.patients.size;
+    out.push({hosp:g.hosp, patients:n, dot: n? g.qty/n:0, docCount: g.docs.size});
+  }
+  return out;
+}
+
+// 医生明细合并：同一医院内同名医生（跨科室）合并为一行，取患者数最多的科室作为代表
+// 输入：aggregate() 输出的医生明细行数组
+// 输出：按 (医院+姓名) 合并后的行数组，dept = 患者数最多的那个科室
+function mergeDoctorsByHospital(rows){
+  const groups = new Map();
+  for(const r of rows){
+    const key = r.hosp + '§' + r.doctor;
+    let g = groups.get(key);
+    if(!g){
+      g = {hosp: r.hosp, doctor: r.doctor, patients: 0, qty: 0, topDept: r.dept, topPatients: r.patients, _opp: r._opp};
+      groups.set(key, g);
+    }
+    g.patients += r.patients;
+    g.qty += r.patients * r.dot;
+    // 取患者数最多的科室作为代表科室
+    if(r.patients > g.topPatients){ g.topDept = r.dept; g.topPatients = r.patients; }
+    if(r._opp) g._opp = true;
+  }
+  const out = [];
+  for(const g of groups.values()){
+    const n = g.patients;
+    out.push({
+      hosp: g.hosp,
+      dept: g.topDept,                // 代表科室（患者数最多的）
+      doctor: g.doctor,
+      patients: n,
+      dot: n ? g.qty / n : 0,
+      _opp: g._opp
+    });
+  }
+  return out;
+}
+
+function filterRows(prodSet, catFilter){
+  const {start,end}=getWindow();
+  const res=[];
+  for(const r of RAW){
+    if(r.d<start || r.d>end) continue;
+    if(prodSet && !prodSet.has(r.prod)) continue;
+    if(catFilter && r.cat!==catFilter) continue;
+    res.push(r);
+  }
+  return res;
+}
+
+/* ============ 脱敏（仅医生名；医院名 / 科室 保持明文） ============ */
+// 全局映射，每次重算前重置，保证左/右表、图表代号一致（仅"字母"模式需要）
+const _docMap = new Map();
+const _docCnt = {n:0};
+
+function _code(map, counter, fmt, key){
+  if(key==null || key==='' || key==='—') return key || '—';
+  if(map.has(key)) return map.get(key);
+  return map.set(key, fmt(counter.n++)).get(key);
+}
+const _docFmt  = i => i<26 ? String.fromCharCode(65+i)
+                           : String.fromCharCode(65+Math.floor(i/26)-1)+String.fromCharCode(65+i%26);
+
+// 姓氏模式：保留首字 + "医生"（如 张医生）。同姓会合并为同一显示，符合脱敏预期
+function _surnameMask(name){
+  if(!name || name==='—') return name || '—';
+  const s = String(name).trim();
+  if(!s) return '—';
+  const first = Array.from(s)[0];
+  return first + '医生';
+}
+
+// 仅"字母"模式需统一代号映射；医院名/科室永远不进映射
+function buildMaskMaps(rows){
+  _docMap.clear(); _docCnt.n=0;
+  if(STATE.maskMode !== 'letter') return;
+  for(const r of rows){
+    _code(_docMap,_docCnt,_docFmt, r.doctor);
+  }
+}
+
+// mode: 'off' | 'letter' | 'surname'；医院名 / 科室一律明文
+function anonymize(rows, mode){
+  if(!mode || mode==='off'){
+    return rows.map(r=>({...r, hospDisp: r.hosp||'—', docDisp: r.doctor||'—'}));
+  }
+  if(mode==='letter'){
+    return rows.map(r=>({...r, hospDisp: r.hosp||'—', docDisp: _docMap.get(r.doctor) || (r.doctor||'—')}));
+  }
+  // surname：保留姓 + 医生
+  return rows.map(r=>({...r, hospDisp: r.hosp||'—', docDisp: _surnameMask(r.doctor)}));
+}
+
+/* ============ 渲染 ============ */
+function renderTable(side, rows, title, sub, mode){
+  const thead = document.getElementById(side+'Head');
+  const tbody = document.querySelector(`#${side}Table tbody`);
+  tbody.innerHTML='';
+  if(mode==='hospital'){
+    thead.innerHTML = `<tr><th class="rank">#</th><th>医疗单位</th>`+
+      `<th class="num">患者人数</th><th class="num">DOT</th><th class="num">医生数</th></tr>`;
+    rows.forEach((r,idx)=>{
+      const tr=document.createElement('tr');
+      tr.className='clickable-row';
+      tr.dataset.hosp = r.hosp || '';
+      tr.innerHTML = `<td class="rank">${idx+1}</td>`+
+        `<td><span class="hosp-link">${esc(r.hospDisp)}</span></td>`+
+        `<td class="num">${r.patients.toLocaleString()}</td>`+
+        `<td class="num">${r.dot.toFixed(2)}</td>`+
+        `<td class="num">${r.docCount||0}</td>`;
+      tr.addEventListener('click', ()=> drillDownHospital(side, r.hosp));
+      tbody.appendChild(tr);
+    });
+  } else {
+    thead.innerHTML = `<tr><th class="rank">#</th><th>医疗单位</th><th>处方科室</th><th>处方医生</th>`+
+      `<th class="num">患者人数</th><th class="num">DOT</th></tr>`;
+    rows.forEach((r,idx)=>{
+      const tr=document.createElement('tr');
+      if(r._opp) tr.className='opp';
+      tr.innerHTML = `<td class="rank">${idx+1}</td>`+
+        `<td>${esc(r.hospDisp)}</td><td>${esc(r.dept)}</td><td>${esc(r.docDisp)}</td>`+
+        `<td class="num">${r.patients.toLocaleString()}</td>`+
+        `<td class="num">${r.dot.toFixed(2)}</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+  document.getElementById(side+'Title').textContent=title;
+  document.getElementById(side+'Sub').textContent=sub;
+}
+
+function renderBars(id, rows){
+  const el=document.getElementById(id);
+  if(!rows.length){ el.innerHTML=''; return; }
+  // 按医院聚合：汇总患者数，收集医生名（用 / 间隔），一眼看出 TOP 医院
+  const byHosp = new Map();
+  for(const r of rows){
+    const h = r.hospDisp || '—';
+    if(!byHosp.has(h)) byHosp.set(h, {hosp:h, patients:0, docs:new Set()});
+    const g = byHosp.get(h);
+    g.patients += r.patients;
+    if(r.docDisp && r.docDisp!=='—') g.docs.add(r.docDisp);
+  }
+  const agg = [...byHosp.values()].sort((a,b)=> b.patients - a.patients).slice(0,10);
+  const max = Math.max(...agg.map(g=>g.patients), 0);
+  el.innerHTML = agg.map(g=>{
+    const pct = max ? (g.patients/max*100) : 0;
+    const docStr = [...g.docs].join('/');
+    const label = docStr ? `${esc(g.hosp)} / ${esc(docStr)}` : esc(g.hosp);
+    return `<div class="bar-row"><div class="bar-name">${label}</div>`+
+      `<div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>`+
+      `<div class="bar-val">${g.patients.toLocaleString()}</div></div>`;
+  }).join('');
+}
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function fmtD(d){ return d? d.toISOString().slice(0,10):''; }
+
+/* ============ 主计算 ============ */
+function recalc(){
+  if(_loading) setLoadingMsg('正在聚合与计算 DOT…');
+  if(!RAW.length) return;
+  STATE.topN = Math.max(5, parseInt(document.getElementById('topN').value)||30);
+  STATE.sortBy = document.getElementById('sortBy').value;
+  STATE.maskMode = document.getElementById('maskMode').value;
+  STATE.timePreset = document.getElementById('timePreset').value;
+
+  const catFilter = STATE.cat==='整体'? null : STATE.cat;
+  const {start,end}=getWindow();
+
+  // 左表：焦点品种
+  const leftRows = filterRows(new Set([STATE.focus]), catFilter);
+  const leftAgg = aggregate(leftRows);          // 医生级
+  const leftHosp = aggregateHosp(leftRows);     // 医院级
+  // 右表：所选竞品
+  const rightRows = filterRows(STATE.competitors, catFilter);
+  const rightAgg = aggregate(rightRows);
+  const rightHosp = aggregateHosp(rightRows);
+
+  // 排序（两种视图共用比较器）
+  const cmp = STATE.sortBy==='dot'
+    ? ((a,b)=> b.dot-a.dot || b.patients-a.patients)
+    : ((a,b)=> b.patients-a.patients || b.dot-a.dot);
+  [leftAgg, rightAgg, leftHosp, rightHosp].forEach(a=>a.sort(cmp));
+
+  // 机会市场：右表 (医院,科室) 不在左表 TOP15（仅医生视图标记）
+  const leftTopKeys = new Set(leftAgg.slice(0,15).map(r=>r.hosp+'§'+r.dept));
+  rightAgg.forEach(r=>{ r._opp = !leftTopKeys.has(r.hosp+'§'+r.dept); });
+
+  buildMaskMaps(leftAgg.concat(rightAgg));   // 统一脱敏映射（医生+机构），左/右表代号一致
+
+  // 存双视图聚合结果，供 Tab 切换复用
+  GVIEW.left  = { doctor: leftAgg,  hospital: leftHosp };
+  GVIEW.right = { doctor: rightAgg, hospital: rightHosp };
+
+  const winTxt = getWinTxt();
+  const catTxt = catFilter||'全适应症';
+  GMETA = {
+    catTxt, winTxt,
+    leftRows: leftRows.length, rightRows: rightRows.length,
+    focus: STATE.focus, compCount: STATE.competitors.size,
+  };
+
+  renderSide('left');
+  renderSide('right');
+
+  const oppCount = rightAgg.slice(0,STATE.topN).filter(r=>r._opp).length;
+  document.getElementById('metaLine').innerHTML =
+    `当前口径：<b>${catTxt}</b> · <b>${winTxt}</b> · 左表 <b>${leftRows.length.toLocaleString()}</b> 行 / 右表 <b>${rightRows.length.toLocaleString()}</b> 行 · 机会市场 <b>${oppCount}</b> 个`;
+
+  renderCharts();   // 同步刷新多维分析图表
+  fillChartCatSel(); // 同步多维视角内的适应症下拉
+  hideLoading();
+}
+
+// 根据当前 Tab 视图渲染某一侧（医生明细 / 医院汇总）
+function renderSide(side){
+  const mode = STATE.viewMode[side];
+  let aggAll = GVIEW[side][mode];
+  // 医生明细模式：同一医院内同名跨科室医生合并为一行（科室用 / 拼接）
+  if(mode === 'doctor') aggAll = mergeDoctorsByHospital(aggAll);
+  const top = anonymize(aggAll.slice(0,STATE.topN), STATE.maskMode);
+  const title = side==='left'
+    ? `焦点品种：${GMETA.focus}`
+    : `同类竞品整体（${GMETA.compCount} 个品种）`;
+  const sub = `${GMETA.catTxt} · ${GMETA.winTxt} · ${GMETA[side==='left'?'leftRows':'rightRows'].toLocaleString()} 行`
+            + (mode==='hospital' ? ' · 医院汇总' : '');
+  renderTable(side, top, title, sub, mode);
+
+  // 柱状图仅医生视图显示（医院视图表格本身已按医院聚合）
+  const barsEl = document.getElementById(side+'Bars');
+  const barsTitle = document.getElementById(side+'BarsTitle');
+  if(mode==='doctor'){
+    barsEl.style.display=''; barsTitle.style.display='';
+    renderBars(side+'Bars', top);
+  } else {
+    barsEl.style.display='none'; barsTitle.style.display='none'; barsEl.innerHTML='';
+  }
+
+  // 暂存当前视图，供导出复用
+  if(side==='left'){
+    LAST.left = top; LAST.meta.leftTitle = title; LAST.meta.leftSub = sub;
+  } else {
+    LAST.right = top; LAST.meta.rightTitle = title; LAST.meta.rightSub = sub;
+  }
+  LAST.meta.cat = GMETA.catTxt; LAST.meta.win = GMETA.winTxt;
+}
+
+/* ============ 医院汇总 → 医生明细 下钻 ============ */
+function drillDownHospital(side, hospName){
+  // 从医生明细数据中过滤该医院的所有行
+  const allDocs = GVIEW[side].doctor || [];
+  let filtered = allDocs.filter(r => r.hosp === hospName);
+  // 同名跨科室合并（与主医生明细视图一致）
+  filtered = mergeDoctorsByHospital(filtered);
+  // 按患者数降序
+  filtered.sort((a,b) => b.patients - a.patients);
+  const top = anonymize(filtered, STATE.maskMode);
+
+  // 切换表头为医生明细（带返回按钮）
+  const thead = document.getElementById(side+'Head');
+  const tbody = document.querySelector(`#${side}Table tbody`);
+  thead.innerHTML = `<tr>
+    <th class="rank">#</th><th>处方科室</th><th>处方医生</th>
+    <th class="num">患者人数</th><th class="num">DOT</th></tr>`;
+  tbody.innerHTML = '';
+  top.forEach((r,idx)=>{
+    const tr=document.createElement('tr');
+    if(r._opp) tr.className='opp';
+    tr.innerHTML = `<td class="rank">${idx+1}</td>`+
+      `<td>${esc(r.dept)}</td><td>${esc(r.docDisp)}</td>`+
+      `<td class="num">${r.patients.toLocaleString()}</td>`+
+      `<td class="num">${r.dot.toFixed(2)}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  // 标题改为下钻模式
+  const hospLabel = hospName;   // 医院名永不脱敏
+  document.getElementById(side+'Title').innerHTML =
+    `${side==='left'?'焦点品种':'同类竞品'} · <b>${esc(hospLabel)}</b> <span style="font-weight:400;font-size:12px;color:var(--muted);">(${top.length} 位医生)</span>`;
+  document.getElementById(side+'Sub').innerHTML =
+    `<span class="back-btn" onclick="renderSide('${side}')">← 返回医院汇总</span>`;
+
+  // 隐藏柱状图
+  document.getElementById(side+'Bars').style.display='none';
+  document.getElementById(side+'BarsTitle').style.display='none';
+}
+
+/* ============ 多维分析图表 ============ */
+const CHARTS = {};   // 已创建的 Chart 实例，按 tab 名缓存
+
+// 去重计数：按 keyFn 分组，统计各组 distinct 患者(oneid|invoice)
+function dedupBy(rows, keyFn){
+  const m = new Map();
+  for(const r of rows){
+    const k = keyFn(r);
+    let s = m.get(k);
+    if(!s){ s = new Set(); m.set(k, s); }
+    s.add(r.oneid + '|' + r.invoice);
+  }
+  return m;   // Map<key, Set>
+}
+
+// 当前口径下的行集合
+function rowsInScope(prodSet, catFilter){
+  const {start,end} = getWindow();
+  const res = [];
+  for(const r of RAW){
+    if(r.d < start || r.d > end) continue;
+    if(prodSet && !prodSet.has(r.prod)) continue;
+    if(catFilter && r.cat !== catFilter) continue;
+    res.push(r);
+  }
+  return res;
+}
+
+function destroyChart(name){
+  if(CHARTS[name]){ CHARTS[name].destroy(); delete CHARTS[name]; }
+}
+
+function renderCharts(){
+  if(!RAW.length) return;
+  const tab = STATE.chartTab;
+  if(tab==='share')   renderShare();
+  else if(tab==='city')   renderCity();
+  else if(tab==='trend')  renderTrend();
+  else if(tab==='profile') renderProfile();
+  else if(tab==='hosp')    renderHospShare();
+}
+
+/* 竞品份额: 焦点 + 竞品 各品种去重患者数(及销量) */
+function renderShare(){
+  const catFilter = STATE.cat==='整体'? null : STATE.cat;
+  const prods = new Set([STATE.focus, ...STATE.competitors]);
+  const rows = rowsInScope(prods, catFilter);
+  const patMap = dedupBy(rows, r=>r.prod);
+  const qtyMap = new Map();
+  for(const r of rows){ qtyMap.set(r.prod, (qtyMap.get(r.prod)||0) + r.convQty); }
+  const items = [...prods].map(p=>({
+    prod: p,
+    patients: patMap.get(p)? patMap.get(p).size : 0,
+    qty: qtyMap.get(p) || 0,
+    isFocus: p===STATE.focus,
+  })).filter(x=>x.patients>0 || x.qty>0).sort((a,b)=> b.patients - a.patients);
+
+  const labels = items.map(x=>x.prod);
+  const data = items.map(x=>x.patients);
+  const colors = items.map(x=> x.isFocus? '#305496' : '#b9c4dd');
+  destroyChart('share');
+  CHARTS.share = new Chart(document.getElementById('chartShare'), {
+    type:'bar',
+    data:{ labels, datasets:[{ label:'去重患者数', data, backgroundColor:colors, borderRadius:4 }] },
+    options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false},
+        tooltip:{ callbacks:{ label:(c)=>{
+          const it=items[c.dataIndex];
+          const tot=data.reduce((a,b)=>a+b,0);
+          const pct = tot? (it.patients/tot*100).toFixed(1) : 0;
+          return `患者数 ${it.patients.toLocaleString()} (${pct}%) · 销量 ${it.qty.toLocaleString()}`;
+        }}},
+        title:{ display:true, text:'各品种去重患者数（当前口径）' } },
+      scales:{ x:{ title:{display:true,text:'去重患者数'} } } }
+  });
+  // 明细表
+  const tot = data.reduce((a,b)=>a+b,0) || 1;
+  let html = '<table><thead><tr><th>品种</th><th class="num">患者数</th><th class="num">患者占比</th><th class="num">销量(转化后数量)</th></tr></thead><tbody>';
+  items.forEach(it=>{
+    const cls = it.isFocus? 'class="c-focus"':'';
+    html += `<tr><td ${cls}>${esc(it.prod)}${it.isFocus?' ★':''}</td>`+
+            `<td class="num">${it.patients.toLocaleString()}</td>`+
+            `<td class="num">${(it.patients/tot*100).toFixed(1)}%</td>`+
+            `<td class="num">${it.qty.toLocaleString()}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('shareTable').innerHTML = html;
+}
+
+/* 城市覆盖: 焦点 vs 竞品合计 各城市去重患者数 */
+function renderCity(){
+  const catFilter = STATE.cat==='整体'? null : STATE.cat;
+  const focusRows = rowsInScope(new Set([STATE.focus]), catFilter);
+  const compRows = rowsInScope(STATE.competitors, catFilter);
+  const fMap = dedupBy(focusRows, r=>r.city);
+  const cMap = dedupBy(compRows, r=>r.city);
+  const citySet = new Set([...fMap.keys(), ...cMap.keys()]);
+  const arr = [...citySet].map(c=>({
+    city:c, f: fMap.get(c)?fMap.get(c).size:0, c: cMap.get(c)?cMap.get(c).size:0
+  })).filter(x=>x.f>0 || x.c>0).sort((a,b)=> (b.f+b.c)-(a.f+a.c)).slice(0,15);
+
+  const labels = arr.map(x=>x.city);
+  const fData = arr.map(x=>x.f), cData = arr.map(x=>x.c);
+  destroyChart('city');
+  CHARTS.city = new Chart(document.getElementById('chartCity'), {
+    type:'bar',
+    data:{ labels,
+      datasets:[
+        { label:'焦点品种 '+STATE.focus, data:fData, backgroundColor:'#305496', borderRadius:4 },
+        { label:'竞品合计', data:cData, backgroundColor:'#b9c4dd', borderRadius:4 },
+      ]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:true, position:'top'},
+        tooltip:{ callbacks:{ label:(t)=> `${t.dataset.label}: ${t.parsed.y.toLocaleString()} 人` } },
+        title:{ display:true, text:'各城市去重患者数：焦点品种 vs 竞品合计（TOP15）' } },
+      scales:{ x:{ stacked:true }, y:{ stacked:true, title:{display:true,text:'去重患者数'} } } }
+  });
+  let html = '<table><thead><tr><th>城市</th><th class="num">焦点品种患者数</th><th class="num">竞品合计患者数</th><th class="num">焦点占比</th></tr></thead><tbody>';
+  arr.forEach(x=>{
+    const tot = x.f + x.c || 1;
+    html += `<tr><td>${esc(x.city)}</td><td class="num">${x.f.toLocaleString()}</td>`+
+            `<td class="num">${x.c.toLocaleString()}</td>`+
+            `<td class="num">${(x.f/tot*100).toFixed(1)}%</td></tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('cityTable').innerHTML = html;
+}
+
+/* 时间趋势: 按月聚合 焦点 vs 竞品合计 */
+function renderTrend(){
+  const catFilter = STATE.cat==='整体'? null : STATE.cat;
+  const focusRows = rowsInScope(new Set([STATE.focus]), catFilter);
+  const compRows = rowsInScope(STATE.competitors, catFilter);
+  const metric = STATE.trendMetric;
+  // 收集月份
+  const months = new Set();
+  const accF = new Map(), accC = new Map();
+  const bucket = (rows, acc)=>{
+    for(const r of rows){
+      const ym = r.d.getFullYear()+'-'+String(r.d.getMonth()+1).padStart(2,'0');
+      months.add(ym);
+      acc.set(ym, (acc.get(ym)||0) + (metric==='patients'? 1 : r.convQty));
+    }
+  };
+  bucket(focusRows, accF); bucket(compRows, accC);
+  const sorted = [...months].sort();
+  // 患者数口径需按月去重
+  let fData, cData;
+  if(metric==='patients'){
+    fData = monthDedup(focusRows, sorted);
+    cData = monthDedup(compRows, sorted);
+  } else {
+    fData = sorted.map(m=> accF.get(m)||0);
+    cData = sorted.map(m=> accC.get(m)||0);
+  }
+  destroyChart('trend');
+  CHARTS.trend = new Chart(document.getElementById('chartTrend'), {
+    type:'line',
+    data:{ labels:sorted,
+      datasets:[
+        { label:'焦点品种 '+STATE.focus, data:fData, borderColor:'#305496', backgroundColor:'rgba(48,84,150,.12)', tension:.25, fill:true },
+        { label:'竞品合计', data:cData, borderColor:'#b9c4dd', backgroundColor:'transparent', tension:.25, fill:false },
+      ]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:true, position:'top'},
+        title:{ display:true, text:'月度趋势（'+(metric==='patients'?'去重患者数':'转化后数量')+'）' } },
+      scales:{ y:{ beginAtZero:true, title:{display:true,text: metric==='patients'?'去重患者数':'转化后数量'} },
+               x:{ title:{display:true,text:'月份'} } } }
+  });
+}
+function monthDedup(rows, months){
+  const m = new Map();
+  for(const mo of months) m.set(mo, new Set());
+  for(const r of rows){
+    const ym = r.d.getFullYear()+'-'+String(r.d.getMonth()+1).padStart(2,'0');
+    if(m.has(ym)) m.get(ym).add(r.oneid+'|'+r.invoice);
+  }
+  return months.map(mo=> m.get(mo).size);
+}
+
+/* 患者画像差异: 年龄分层占比 + 性别占比 */
+function renderProfile(){
+  const catFilter = STATE.cat==='整体'? null : STATE.cat;
+  const scope = rowsInScope(new Set([STATE.focus, ...STATE.competitors]), catFilter);
+  // 患者级: oneid|invoice -> {age, sex, group}
+  const pat = new Map();
+  for(const r of scope){
+    const pk = r.oneid+'|'+r.invoice;
+    const g = (r.prod===STATE.focus)? 'focus' : 'comp';
+    let rec = pat.get(pk);
+    if(!rec){
+      rec = { group:g, age:r.age, sex:r.sex };
+      pat.set(pk, rec);
+    } else {
+      if(rec.group!=='focus' && g==='focus') rec.group='focus';
+      if(!rec.age && r.age) rec.age=r.age;
+      if(!rec.sex && r.sex) rec.sex=r.sex;
+    }
+  }
+  const buckets = [['<18',x=>x<18],['18-29',x=>x>=18&&x<30],['30-39',x=>x<40],['40-49',x=>x<50],
+                   ['50-59',x=>x<60],['60-69',x=>x<70],['70+',x=>x>=70]];
+  const fAge = new Array(buckets.length).fill(0);
+  const cAge = new Array(buckets.length).fill(0);
+  const fSex = {男:0,女:0,未知:0}, cSex = {男:0,女:0,未知:0};
+  for(const rec of pat.values()){
+    let ageNum = NaN;
+    if(rec.age!==''){ const n=parseFloat(rec.age); if(!isNaN(n)) ageNum=n; }
+    const arr = rec.group==='focus'? fAge : cAge;
+    if(!isNaN(ageNum)){ for(let i=0;i<buckets.length;i++){ if(buckets[i][1](ageNum)){ arr[i]++; break; } } }
+    const sexArr = rec.group==='focus'? fSex : cSex;
+    const s = rec.sex==='男'||rec.sex==='女'? rec.sex : '未知';
+    sexArr[s]++;
+  }
+  const fTot = fAge.reduce((a,b)=>a+b,0)||1, cTot = cAge.reduce((a,b)=>a+b,0)||1;
+  const fSexTot = (fSex.男+fSex.女+fSex.未知)||1, cSexTot = (cSex.男+cSex.女+cSex.未知)||1;
+  // 年龄(归一化为%便于比较)
+  destroyChart('age');
+  CHARTS.age = new Chart(document.getElementById('chartAge'), {
+    type:'bar',
+    data:{ labels:buckets.map(b=>b[0]),
+      datasets:[
+        { label:'焦点品种', data:fAge.map(v=>+(v/fTot*100).toFixed(1)), backgroundColor:'#305496', borderRadius:4 },
+        { label:'竞品合计', data:cAge.map(v=>+(v/cTot*100).toFixed(1)), backgroundColor:'#b9c4dd', borderRadius:4 },
+      ]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:true,position:'top'},
+        title:{display:true,text:'年龄分层占比（组内%，当前口径）'},
+        tooltip:{ callbacks:{ label:(t)=> `${t.dataset.label}: ${t.parsed.y}%` } } },
+      scales:{ y:{ beginAtZero:true, max:100, title:{display:true,text:'占比 %'} } } }
+  });
+  // 性别(归一化为%)
+  destroyChart('sex');
+  CHARTS.sex = new Chart(document.getElementById('chartSex'), {
+    type:'bar',
+    data:{ labels:['男','女','未知'],
+      datasets:[
+        { label:'焦点品种', data:[fSex.男/fSexTot*100, fSex.女/fSexTot*100, fSex.未知/fSexTot*100].map(v=>+v.toFixed(1)), backgroundColor:'#305496', borderRadius:4 },
+        { label:'竞品合计', data:[cSex.男/cSexTot*100, cSex.女/cSexTot*100, cSex.未知/cSexTot*100].map(v=>+v.toFixed(1)), backgroundColor:'#b9c4dd', borderRadius:4 },
+      ]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:true,position:'top'},
+        title:{display:true,text:'性别占比（组内%，当前口径）'},
+        tooltip:{ callbacks:{ label:(t)=> `${t.dataset.label}: ${t.parsed.y}%` } } },
+      scales:{ y:{ beginAtZero:true, max:100, title:{display:true,text:'占比 %'} } } }
+  });
+}
+
+/* 医院份额: 锁定单家医院，看各品种患者份额占比 */
+let HOSP_LIST = [];          // 当前口径下的医院列表(按患者数降序)
+let HOSP_LIST_SIG = '';      // 医院列表缓存签名(适应症+窗口)
+function buildHospSelect(){
+  const catFilter = STATE.cat==='整体'? null : STATE.cat;
+  const w = getWindow();
+  const sig = catFilter + '|' + fmtD(w.start) + '|' + fmtD(w.end);
+  if(sig !== HOSP_LIST_SIG){
+    const cnt = new Map();
+    for(const r of RAW){
+      if(r.d < w.start || r.d > w.end) continue;
+      if(catFilter && r.cat !== catFilter) continue;
+      let s = cnt.get(r.hosp);
+      if(!s){ s = new Set(); cnt.set(r.hosp, s); }
+      s.add(r.oneid + '|' + r.invoice);
+    }
+    HOSP_LIST = [...cnt.entries()].map(([h,s])=>({hosp:h, patients:s.size}))
+                  .sort((a,b)=> b.patients - a.patients);
+    HOSP_LIST_SIG = sig;
+  }
+  const sel = document.getElementById('lockHospital');
+  const prev = STATE.lockHospital;
+  sel.innerHTML = '';
+  HOSP_LIST.forEach(o=>{
+    const op = document.createElement('option');
+    op.value = o.hosp; op.textContent = `${o.hosp}（${o.patients.toLocaleString()} 人）`;
+    sel.appendChild(op);
+  });
+  STATE.lockHospital = (prev && HOSP_LIST.some(o=>o.hosp===prev))
+    ? prev : (HOSP_LIST.length? HOSP_LIST[0].hosp : '');
+  sel.value = STATE.lockHospital;
+}
+function drawHospChart(){
+  const hosp = STATE.lockHospital;
+  if(!hosp) return;
+  const catFilter = STATE.cat==='整体'? null : STATE.cat;
+  const w = getWindow();
+  const patMap = new Map(), qtyMap = new Map();   // prod -> 去重患者集 / 销量
+  for(const r of RAW){
+    if(r.d < w.start || r.d > w.end) continue;
+    if(catFilter && r.cat !== catFilter) continue;
+    if(r.hosp !== hosp) continue;
+    let s = patMap.get(r.prod);
+    if(!s){ s = new Set(); patMap.set(r.prod, s); }
+    s.add(r.oneid + '|' + r.invoice);
+    qtyMap.set(r.prod, (qtyMap.get(r.prod)||0) + r.convQty);
+  }
+  const items = [...patMap.entries()].map(([prod,s])=>({
+    prod, patients: s.size, qty: qtyMap.get(prod)||0, isFocus: prod===STATE.focus
+  })).sort((a,b)=> b.patients - a.patients);
+  const labels = items.map(x=>x.prod);
+  const data = items.map(x=>x.patients);
+  const colors = items.map(x=> x.isFocus? '#305496' : '#b9c4dd');
+  destroyChart('hosp');
+  CHARTS.hosp = new Chart(document.getElementById('chartHosp'), {
+    type:'bar',
+    data:{ labels, datasets:[{ label:'去重患者数', data, backgroundColor:colors, borderRadius:4 }] },
+    options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false},
+        tooltip:{ callbacks:{ label:(c)=>{
+          const it=items[c.dataIndex];
+          const tot=data.reduce((a,b)=>a+b,0);
+          const pct = tot? (it.patients/tot*100).toFixed(1) : 0;
+          return `患者数 ${it.patients.toLocaleString()} (${pct}%) · 销量 ${it.qty.toLocaleString()}`;
+        }}},
+        title:{ display:true, text:`${hosp} · 各品种去重患者数` } },
+      scales:{ x:{ title:{display:true,text:'去重患者数'} } } }
+  });
+  const tot = data.reduce((a,b)=>a+b,0) || 1;
+  let html = '<table><thead><tr><th>品种</th><th class="num">患者数</th><th class="num">患者占比</th><th class="num">销量(转化后数量)</th></tr></thead><tbody>';
+  items.forEach(it=>{
+    const cls = it.isFocus? 'class="c-focus"':'';
+    html += `<tr><td ${cls}>${esc(it.prod)}${it.isFocus?' ★':''}</td>`+
+            `<td class="num">${it.patients.toLocaleString()}</td>`+
+            `<td class="num">${(it.patients/tot*100).toFixed(1)}%</td>`+
+            `<td class="num">${it.qty.toLocaleString()}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('hospTable').innerHTML = html;
+}
+function renderHospShare(){
+  buildHospSelect();
+  drawHospChart();
+}
+
+/* ============ 导出当前视图为 Excel ============ */
+function buildSheet(rows, title, sub, isRight, isHosp){
+  const masked = STATE.maskMode!=='off';
+  const maskTag = masked ? (' · 已脱敏(' + (STATE.maskMode==='letter'?'字母':'姓氏') + ')') : '';
+  const aoa = [[title], [sub + maskTag], []];   // 第1-2行：标题/口径；第3行空行
+  // isHosp 由调用方显式传入（空表时无法从行结构判断视图）
+  let header;
+  if(isHosp){
+    header = ['排名',
+              '医疗单位',                       // 医院名永不脱敏
+              '患者人数','DOT','医生数'];
+    if(isRight) header.push('机会市场');
+  } else {
+    header = ['排名',
+              '医疗单位',                       // 医院名永不脱敏
+              '处方科室',
+              masked?'处方医生(脱敏)':'处方医生',
+              '患者人数','DOT'];
+    if(isRight) header.push('机会市场');
+  }
+  aoa.push(header);
+  rows.forEach((r,i)=>{
+    let row;
+    if(isHosp){
+      row = [i+1, r.hospDisp, r.patients, Number(r.dot.toFixed(2)), r.docCount||0];
+      if(isRight) row.push(r._opp ? '是' : '否');   // 医院视图下机会市场标记恒为否(仅医生视图计算)
+    } else {
+      row = [i+1, r.hospDisp, r.dept, r.docDisp, r.patients, Number(r.dot.toFixed(2))];
+      if(isRight) row.push(r._opp ? '是' : '否');
+    }
+    aoa.push(row);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = isHosp
+    ? [{wch:6},{wch:40},{wch:10},{wch:10},{wch:8}]
+    : [{wch:6},{wch:38},{wch:14},{wch:12},{wch:10},{wch:10}];
+  if(isRight) ws['!cols'].push({wch:10});
+  ws['!merges'] = [{s:{r:0,c:0}, e:{r:0,c:header.length-1}}];   // 标题跨列合并
+  return ws;
+}
+
+/* ============ 一键导出全部（所有适应症大类 × 焦点/竞品 × 医生/医院 双视图） ============ */
+function exportExcel(){
+  if(!RAW.length){ alert('请先上传数据底表'); return; }
+  const wb = XLSX.utils.book_new();
+  const cats = ['整体','皮科','消化','关节','其他'];
+  const {start,end} = getWindow();
+  const winTxt = getWinTxt();
+  let sheetCount = 0;
+  for(const cat of cats){
+    const catFilter = cat==='整体'? null : cat;
+    // 该口径下是否真的有数据
+    let has=false;
+    for(const r of RAW){ if(r.d>=start && r.d<=end && (!catFilter || r.cat===catFilter)){ has=true; break; } }
+    if(!has) continue;
+    for(const mode of ['doctor','hospital']){
+      const leftAgg  = computeAgg(new Set([STATE.focus]), catFilter, mode);
+      const rightAgg = computeAgg(STATE.competitors, catFilter, mode);
+      // 机会市场标记（仅医生视图计算，医院视图恒为"否"）
+      if(mode==='doctor'){
+        const leftTop = new Set(leftAgg.slice(0,15).map(r=>r.hosp+'§'+r.dept));
+        rightAgg.forEach(r=>{ r._opp = !leftTop.has(r.hosp+'§'+r.dept); });
+      }
+      buildMaskMaps(leftAgg.concat(rightAgg));   // 保证该大类左/右表医生代号一致
+      const leftRows  = anonymize(leftAgg,  STATE.maskMode);
+      const rightRows = anonymize(rightAgg, STATE.maskMode);
+      const viewTxt = mode==='doctor' ? '医生' : '医院';
+      const catTxt  = catFilter || '全适应症';
+      const lTitle = `焦点品种：${STATE.focus}`;
+      const rTitle = `同类竞品整体（${STATE.competitors.size} 个品种）`;
+      XLSX.utils.book_append_sheet(wb,
+        buildSheet(leftRows,  lTitle, `${catTxt} · ${winTxt}`, false, mode==='hospital'),
+        `${cat}_焦点_${viewTxt}`);
+      XLSX.utils.book_append_sheet(wb,
+        buildSheet(rightRows, rTitle, `${catTxt} · ${winTxt}`, true,  mode==='hospital'),
+        `${cat}_竞品_${viewTxt}`);
+      sheetCount += 2;
+    }
+  }
+  if(sheetCount===0){ alert('当前口径下无数据可导出'); return; }
+  const safe = s => (s||'').replace(/[\\/:*?"<>|]/g,'_');
+  const fname = `竞品分析_全量_${safe(STATE.focus)}_${safe(winTxt)}.xlsx`;
+  XLSX.writeFile(wb, fname);
+  setStatus(`已导出全量：${fname}（共 ${sheetCount} 张表 · 含 5 大类 × 焦点/竞品 × 医生/医院视图）`, false);
+}
+
+/* ============ 生成分享版（单文件HTML，内嵌全量脱敏汇总，可切换适应症/品种，底表不外泄） ============ */
+// 把当前数据烘焙成独立 HTML：内嵌全部 适应症 × 焦点品种 的脱敏汇总结果（医生明细 + 医院汇总双视图），
+// 对方可自由切换适应症大类与焦点品种、切换视图/排序，但看不到原始底表（无 oneid / 开票抬头 / 逐条处方）、无法改脱敏。
+function buildShareHTML(opts){
+  opts = opts || {};
+  if(!RAW.length){ alert('请先上传数据底表并计算'); return; }
+  if(_loading){ alert('正在计算中，请稍候'); return; }
+
+  const SHARE = buildShareData(opts);
+  const html = renderShareDoc(SHARE);
+  const safe = s => (s||'').replace(/[\\/:*?"<>|]/g,'_');
+  const fname = `竞品分析_分享_${safe(SHARE.meta.focus)}.html`;
+  const blob = new Blob([html], {type:'text/html;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = fname;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  const sec = SHARE.opts.sections;
+  const parts=[];
+  if(sec.doctor) parts.push('医生明细');
+  if(sec.hospital) parts.push('医院汇总');
+  if(sec.multi) parts.push('多维分析');
+  setStatus(`已生成分享版：${fname}（内容：${parts.join('+')||'无'} · 单文件、底表不外泄）`, false);
+  return html;
+}
+
+/* 预计算全部 适应症 × 焦点品种 的脱敏汇总（医生明细 + 医院汇总 双视图），供分享版离线交互 */
+/* ============ 分享版多维视角：纯计算（输出纯数值，绝不含 oneid / 开票抬头 / 原始处方行） ============ */
+function calcShareAll(catRows){
+  const pat=new Map(), qty=new Map();
+  for(const r of catRows){ let s=pat.get(r.prod); if(!s){s=new Set();pat.set(r.prod,s);} s.add(r.oneid+'|'+r.invoice); qty.set(r.prod,(qty.get(r.prod)||0)+r.convQty); }
+  return [...pat.entries()].map(([prod,s])=>({prod,patients:s.size,qty:qty.get(prod)||0})).filter(x=>x.patients>0||x.qty>0).sort((a,b)=>b.patients-a.patients);
+}
+function calcCity(focusRows, compRows){
+  const fM=new Map(), cM=new Map();
+  for(const r of focusRows){ let s=fM.get(r.city); if(!s){s=new Set();fM.set(r.city,s);} s.add(r.oneid+'|'+r.invoice); }
+  for(const r of compRows){ let s=cM.get(r.city); if(!s){s=new Set();cM.set(r.city,s);} s.add(r.oneid+'|'+r.invoice); }
+  const set=new Set([...fM.keys(),...cM.keys()]);
+  return [...set].map(c=>({city:c, f:fM.get(c)?fM.get(c).size:0, c:cM.get(c)?cM.get(c).size:0})).filter(x=>x.f>0||x.c>0).sort((a,b)=>(b.f+b.c)-(a.f+a.c)).slice(0,15);
+}
+function calcTrend(focusRows, compRows){
+  const months=new Set(); const accF=new Map(), accC=new Map();
+  const bucket=(rows,acc)=>{ for(const r of rows){ const ym=r.d.getFullYear()+'-'+String(r.d.getMonth()+1).padStart(2,'0'); months.add(ym); acc.set(ym,(acc.get(ym)||0)+r.convQty); } };
+  bucket(focusRows,accF); bucket(compRows,accC);
+  const sorted=[...months].sort();
+  const fP=monthDedup(focusRows,sorted), cP=monthDedup(compRows,sorted);
+  const fQ=sorted.map(m=>accF.get(m)||0), cQ=sorted.map(m=>accC.get(m)||0);
+  return {months:sorted, fP, cP, fQ, cQ};
+}
+function calcProfile(catRows, focus){
+  const pat=new Map();
+  for(const r of catRows){
+    const pk=r.oneid+'|'+r.invoice; const g=(r.prod===focus)?'focus':'comp';
+    let rec=pat.get(pk);
+    if(!rec){ rec={group:g,age:r.age,sex:r.sex}; pat.set(pk,rec); }
+    else { if(rec.group!=='focus'&&g==='focus')rec.group='focus'; if(!rec.age&&r.age)rec.age=r.age; if(!rec.sex&&r.sex)rec.sex=r.sex; }
+  }
+  const buckets=[['<18',x=>x<18],['18-29',x=>x>=18&&x<30],['30-39',x=>x<40],['40-49',x=>x<50],['50-59',x=>x<60],['60-69',x=>x<70],['70+',x=>x>=70]];
+  const fAge=new Array(buckets.length).fill(0), cAge=new Array(buckets.length).fill(0);
+  const fSex={男:0,女:0,未知:0}, cSex={男:0,女:0,未知:0};
+  for(const rec of pat.values()){
+    let a=NaN; if(rec.age!==''){const n=parseFloat(rec.age);if(!isNaN(n))a=n;}
+    const arr=rec.group==='focus'?fAge:cAge;
+    if(!isNaN(a)){for(let i=0;i<buckets.length;i++){if(buckets[i][1](a)){arr[i]++;break;}}}
+    const sx=rec.group==='focus'?fSex:cSex;
+    const s=rec.sex==='男'||rec.sex==='女'?rec.sex:'未知'; sx[s]++;
+  }
+  const fTot=fAge.reduce((a,b)=>a+b,0)||1, cTot=cAge.reduce((a,b)=>a+b,0)||1;
+  const fST=(fSex.男+fSex.女+fSex.未知)||1, cST=(cSex.男+cSex.女+cSex.未知)||1;
+  return {
+    age: buckets.map((b,i)=>({label:b[0], fPct:+(fAge[i]/fTot*100).toFixed(1), cPct:+(cAge[i]/cTot*100).toFixed(1)})),
+    sex: [
+      {label:'男', fPct:+(fSex.男/fST*100).toFixed(1), cPct:+(cSex.男/cST*100).toFixed(1)},
+      {label:'女', fPct:+(fSex.女/fST*100).toFixed(1), cPct:+(cSex.女/cST*100).toFixed(1)},
+      {label:'未知', fPct:+(fSex.未知/fST*100).toFixed(1), cPct:+(cSex.未知/cST*100).toFixed(1)},
+    ]
+  };
+}
+function calcHospList(catRows){
+  const cnt=new Map();
+  for(const r of catRows){ let s=cnt.get(r.hosp); if(!s){s=new Set();cnt.set(r.hosp,s);} s.add(r.oneid+'|'+r.invoice); }
+  return [...cnt.entries()].map(([h,s])=>({hosp:h,patients:s.size})).sort((a,b)=>b.patients-a.patients);
+}
+function calcHospShare(catRows, hosp){
+  const pat=new Map(), qty=new Map();
+  for(const r of catRows){ if(r.hosp!==hosp)continue; let s=pat.get(r.prod); if(!s){s=new Set();pat.set(r.prod,s);} s.add(r.oneid+'|'+r.invoice); qty.set(r.prod,(qty.get(r.prod)||0)+r.convQty); }
+  return [...pat.entries()].map(([prod,s])=>({prod,patients:s.size,qty:qty.get(prod)||0})).sort((a,b)=>b.patients-a.patients);
+}
+
+function buildShareData(opts){
+  opts = opts || {};
+  const maskMode = STATE.maskMode;
+  const {start,end} = getWindow();
+  const inWin = RAW.filter(r=> r.d>=start && r.d<=end);          // 仅窗口内数据
+  const byCat = {整体: inWin};
+  for(const r of inWin){ const c=r.cat||'其他'; if(c==='整体') continue; (byCat[c] || (byCat[c]=[])).push(r); }
+  const catOrder = ['整体','皮科','消化','关节','其他'];
+  const allCats = catOrder.filter(c=> byCat[c] && byCat[c].length);
+  const allProducts = PRODUCTS.slice();
+  // 选中范围：勾选项为空 => 全部
+  const selCats = (opts.cats && opts.cats.length) ? opts.cats.filter(c=>allCats.includes(c)) : allCats;
+  const selProducts = (opts.products && opts.products.length) ? opts.products.filter(p=>allProducts.includes(p)) : allProducts;
+  const sec = opts.sections || {doctor:true, hospital:true, multi:true};
+  const mv  = opts.multi || {share:true, city:true, trend:true, profile:true, hosp:true};
+  const topN = Math.max(5, parseInt(document.getElementById('topN').value)||30);
+  const cmp = STATE.sortBy==='dot'
+    ? ((a,b)=> b.dot-a.dot || b.patients-a.patients)
+    : ((a,b)=> b.patients-a.patients || b.dot-a.dot);
+  buildMaskMaps(RAW);   // 全局统一字母代号（仅 letter 模式生效），保证同一医生跨品种代号一致
+  const CAP = 100;
+  // 仅抽取展示字段，绝不携带 oneid / 开票抬头 / 原始处方行
+  const toDocRow  = r => ({hosp:r.hospDisp, dept:r.dept, doc:r.docDisp, patients:r.patients, dot:+(+r.dot).toFixed(2), opp:!!r._opp});
+  const toHospRow = r => ({hosp:r.hospDisp, patients:r.patients, dot:+(+r.dot).toFixed(2), docCount:r.docCount||0});
+
+  const data = {};
+  for(const cat of selCats){
+    data[cat] = { _charts:{} };
+    const catRows = byCat[cat];
+    // ---- per-cat 多维（仅在需要多维且对应子项勾选时计算）----
+    if(sec.multi){
+      data[cat]._charts.share = mv.share ? calcShareAll(catRows) : [];
+      if(mv.hosp){
+        data[cat]._charts.hospList = calcHospList(catRows);
+        const hospShare = {};
+        data[cat]._charts.hospList.forEach(o=>{ hospShare[o.hosp] = calcHospShare(catRows, o.hosp); });
+        data[cat]._charts.hospShare = hospShare;
+      } else {
+        data[cat]._charts.hospList = [];
+        data[cat]._charts.hospShare = {};
+      }
+    } else {
+      data[cat]._charts = {share:[], hospList:[], hospShare:{}};
+    }
+    for(const focus of selProducts){
+      const left  = catRows.filter(r=> r.prod===focus);
+      const right = catRows.filter(r=> r.prod!==focus);
+      let leftDoctor=[], rightDoctor=[], leftHosp=[], rightHosp=[];
+      if(sec.doctor || sec.hospital){
+        // 机会市场：右表(医院,科室) 不在左表 TOP15（与主工具 recalc 口径一致）
+        const leftAggU  = aggregate(left);
+        const rightAggU = aggregate(right);
+        [leftAggU, rightAggU].forEach(a=>a.sort(cmp));
+        const leftTopKeys = new Set(leftAggU.slice(0,15).map(r=>r.hosp+'§'+r.dept));
+        rightAggU.forEach(r=>{ r._opp = !leftTopKeys.has(r.hosp+'§'+r.dept); });
+        if(sec.doctor){
+          leftDoctor  = anonymize(mergeDoctorsByHospital(leftAggU).sort(cmp),  maskMode).map(toDocRow).slice(0,CAP);
+          rightDoctor = anonymize(mergeDoctorsByHospital(rightAggU).sort(cmp), maskMode).map(toDocRow).slice(0,CAP);
+        }
+        if(sec.hospital){
+          leftHosp   = anonymize(aggregateHosp(left).sort(cmp),  maskMode).map(toHospRow).slice(0,CAP);
+          rightHosp  = anonymize(aggregateHosp(right).sort(cmp), maskMode).map(toHospRow).slice(0,CAP);
+        }
+      }
+      // ---- per-(cat,focus) 多维：城市 / 趋势 / 画像 ----
+      const city    = (sec.multi && mv.city)   ? calcCity(left, right)    : [];
+      const trend   = (sec.multi && mv.trend)  ? calcTrend(left, right)   : {months:[],fP:[],cP:[],fQ:[],cQ:[]};
+      const profile = (sec.multi && mv.profile)? calcProfile(catRows, focus) : {age:[],sex:[]};
+      data[cat][focus] = {
+        left:  {doctor:leftDoctor,  hospital:leftHosp},
+        right: {doctor:rightDoctor, hospital:rightHosp},
+        charts: { city, trend, profile },
+      };
+    }
+  }
+  const catDefault = selCats.includes(STATE.cat) ? STATE.cat : (selCats[0]||'整体');
+  return {
+    meta: {
+      focus: STATE.focus,
+      focusDefault: STATE.focus,
+      catDefault,
+      modeDefault: sec.doctor ? 'doctor' : (sec.hospital ? 'hospital' : 'doctor'),
+      cats: selCats, products: selProducts,
+      maskMode,
+      maskTag: maskMode==='off' ? '不脱敏' : (maskMode==='letter' ? '字母代号脱敏' : '姓氏脱敏'),
+      winTxt: getWinTxt(),
+      topN,
+      sortBy: STATE.sortBy,
+      compCount: allProducts.length-1,
+      generatedAt: fmtD(new Date()),
+    },
+    opts: { sections: sec, multi: mv },
+    data,
+  };
+}
+
+// 把 SHARE 数据对象渲染成独立、自包含、可交互的 HTML 文档字符串（内嵌全量脱敏汇总，离线可用）
+function renderShareDoc(share){
+  const m = share.meta;
+  const sec = share.opts.sections;
+  const mv  = share.opts.multi;
+  const contentTxt = [];
+  if(sec.doctor) contentTxt.push('医生明细表');
+  if(sec.hospital) contentTxt.push('医院汇总表');
+  if(sec.multi){
+    const mvNames=[]; if(mv.share)mvNames.push('竞品份额'); if(mv.city)mvNames.push('城市视角'); if(mv.trend)mvNames.push('时间趋势'); if(mv.profile)mvNames.push('患者画像'); if(mv.hosp)mvNames.push('医院份额');
+    contentTxt.push('多维分析('+mvNames.join('/')+')');
+  }
+  const scopeTxt = [
+    `适应症大类：可切换（${m.cats.join(' / ')}）`,
+    `焦点品种：可切换（共 ${m.products.length} 个）`,
+    `时间窗口：${m.winTxt}`,
+    `医生脱敏：${m.maskTag}`,
+    `医院名称：明文（未脱敏）`,
+    `导出内容：${contentTxt.join(' + ')||'（无）'}`,
+    `生成日期：${m.generatedAt}`,
+  ].join(' &nbsp;·&nbsp; ');
+
+  // 防注入：JSON 中的 < 转义为 \u003c（对外页 script 不会提前闭合）
+  const json = JSON.stringify(share).replace(/</g,'\\u003c');
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>竞品分析 · 分享版（${esc(m.focus)}）</title>
+<style>
+  :root{--brand:#305496;--muted:#7a8290;--ink:#1f2733;--line:#e3e8f0;--opp:#fff4e5;--opp-b:#f0a23c;}
+  *{box-sizing:border-box;}
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,sans-serif;color:var(--ink);background:#f5f7fb;margin:0;padding:24px;line-height:1.5;}
+  .wrap{max-width:1180px;margin:0 auto;background:#fff;border-radius:12px;padding:24px 28px;box-shadow:0 2px 12px rgba(40,60,90,.07);}
+  .lock-banner{background:#eef6f0;border:1px solid #bfe0cc;color:#245f3d;border-radius:8px;padding:8px 14px;font-size:13px;margin-bottom:14px;}
+  h1{font-size:20px;margin:0 0 4px;color:var(--brand);}
+  .scope{font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.9;}
+  .controls{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;background:#f7f9fc;border:1px solid var(--line);border-radius:9px;padding:12px 16px;margin-bottom:10px;}
+  .ctl{display:flex;flex-direction:column;gap:5px;}
+  .ctl>label{font-size:12px;color:var(--muted);}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;}
+  .tabs .tab{border:1px solid var(--line);background:#fff;color:#33405a;border-radius:7px;padding:5px 12px;font-size:13px;cursor:pointer;}
+  .tabs .tab.active{background:var(--brand);color:#fff;border-color:var(--brand);}
+  select{border:1px solid var(--line);border-radius:7px;padding:6px 10px;font-size:13px;color:var(--ink);background:#fff;min-width:150px;}
+  h2{font-size:16px;margin:22px 0 6px;color:var(--brand);border-left:4px solid var(--brand);padding-left:10px;}
+  .side-title{font-size:13px;color:#33405a;margin-bottom:8px;font-weight:600;}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin-bottom:6px;}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;}
+  th{background:#f0f4fb;font-weight:600;color:#33405a;}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+  td.rank,th.rank{width:42px;text-align:center;color:var(--muted);}
+  tr.opp{background:var(--opp);}
+  tr.opp td:first-child{border-left:3px solid var(--opp-b);}
+  .bars{margin:10px 0 4px;}
+  .bars-title{font-size:12px;color:var(--muted);margin-bottom:6px;}
+  .bar-row{display:flex;align-items:center;gap:10px;margin:4px 0;font-size:12px;}
+  .bar-name{width:260px;flex:none;color:#33405a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .bar-track{flex:1;background:#eef1f7;border-radius:5px;height:16px;overflow:hidden;}
+  .bar-fill{height:100%;background:linear-gradient(90deg,#3f6fb5,#5b8dd6);border-radius:5px;}
+  .bar-val{width:64px;flex:none;text-align:right;font-variant-numeric:tabular-nums;color:#33405a;}
+  .foot{margin-top:22px;font-size:11px;color:var(--muted);border-top:1px solid var(--line);padding-top:10px;}
+  .empty{padding:18px;color:var(--muted);font-size:13px;}
+  .mv-head{font-size:14px;color:#33405a;font-weight:600;margin:4px 0 8px;}
+  h4{font-size:13px;color:var(--muted);margin:14px 0 4px;}
+  .trend-svg{width:100%;max-width:760px;height:auto;background:#fff;border:1px solid var(--line);border-radius:8px;margin-top:6px;}
+  .trend-svg .axis{font-size:10px;fill:var(--muted);}
+  .city-grp{margin:2px 0 7px;}
+  tr.c-focus td{background:#eef3fb;font-weight:600;}
+  tr.c-focus td:first-child{border-left:3px solid var(--brand);}
+</style></head>
+<body><div class="wrap">
+  <div class="lock-banner">🔒 本页为交互分享版 · 数据已脱敏汇总 · 不含原始底表 · 可切换适应症与品种，但无法更改脱敏方式或查看患者级原始记录</div>
+  <h1>竞品分析 · 分享版</h1>
+  <div class="scope">${scopeTxt}</div>
+  <div class="controls">
+    <div class="ctl"><label>适应症大类</label><div class="tabs" id="catTabs"></div></div>
+    <div class="ctl"><label>焦点品种</label><select id="focusSel"></select></div>
+    ${sec.doctor||sec.hospital?`<div class="ctl"><label>视图</label><select id="modeSel">${sec.doctor?'<option value="doctor">医生明细</option>':''}${sec.hospital?'<option value="hospital">医院汇总</option>':''}</select></div>`:''}
+    <div class="ctl"><label>排序</label><select id="sortSel"><option value="patients">患者数</option><option value="dot">DOT</option></select></div>
+  </div>
+  ${sec.doctor||sec.hospital?`
+  <h2>左表 · 焦点品种</h2>
+  <div id="leftTitle" class="side-title"></div>
+  <div id="leftTable"></div>
+  <div id="leftBars" class="bars"></div>
+  <h2>右表 · 同类竞品整体</h2>
+  <div id="rightTitle" class="side-title"></div>
+  <div id="rightTable"></div>
+  <div id="rightBars" class="bars"></div>`:''}
+  ${(sec.multi&&(mv.share||mv.city||mv.trend||mv.profile||mv.hosp))?`
+  <h2>多维分析视角</h2>
+  <div class="controls">
+    <div class="ctl"><label>视角</label><div class="tabs" id="mviewTabs"></div></div>
+    <div class="ctl"><label>适应症大类</label><select id="mviewCatSel"></select></div>
+    <div class="ctl" id="trendCtl" style="display:none"><label>趋势指标</label><select id="trendSel"><option value="patients">患者数</option><option value="qty">销量(转化后数量)</option></select></div>
+    <div class="ctl" id="hospCtl" style="display:none"><label>锁定医院</label><select id="lockHospSel"></select></div>
+  </div>
+  <div id="mview"></div>`:''}
+  <div class="foot">本分享版由「竞品分析工具」生成，仅含聚合与脱敏后的结果数据，未包含任何患者级原始记录（oneid / 开票抬头 / 逐条处方）。对方可在本页内切换适应症大类与焦点品种${(sec.multi&&(mv.share||mv.city||mv.trend||mv.profile||mv.hosp))?'、查看多维分析视角':''}，但底表原始数据不出本机、不可见、不可改脱敏。导出内容：${contentTxt.join(' + ')||'（无）'}。</div>
+</div>
+<script>
+const SHARE = ${json};
+(function(){
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const num = n => (n==null?0:n).toLocaleString();
+  const O = SHARE.opts;
+  const sec = O.sections, mv = O.multi;
+  const hasDoctor=sec.doctor, hasHosp=sec.hospital, hasTable=hasDoctor||hasHosp;
+  const hasMulti = sec.multi && (mv.share||mv.city||mv.trend||mv.profile||mv.hosp);
+  const modes=[]; if(hasDoctor)modes.push('doctor'); if(hasHosp)modes.push('hospital');
+  const mvKeys=[]; if(mv.share)mvKeys.push('share'); if(mv.city)mvKeys.push('city'); if(mv.trend)mvKeys.push('trend'); if(mv.profile)mvKeys.push('profile'); if(mv.hosp)mvKeys.push('hosp');
+  const st = { cat: SHARE.meta.catDefault, focus: SHARE.meta.focusDefault, mode: modes[0]||'doctor', sort: SHARE.meta.sortBy, mview: mvKeys[0]||'share', trendMetric:'patients', lockHosp:'' };
+
+  function getRows(side){
+    const slice = (SHARE.data[st.cat] && SHARE.data[st.cat][st.focus] && SHARE.data[st.cat][st.focus][side][st.mode]) || [];
+    const arr = slice.slice();
+    arr.sort((a,b)=> st.sort==='dot' ? (b.dot-a.dot || b.patients-a.patients) : (b.patients-a.patients || b.dot-a.dot));
+    return arr.slice(0, SHARE.meta.topN);
+  }
+  function drawSide(side, title){
+    const tbl=$(side+'Table'); if(!tbl) return;
+    const rows = getRows(side);
+    const isHosp = st.mode==='hospital';
+    let head = isHosp
+      ? '<tr><th class="rank">#</th><th>医疗单位</th><th class="num">患者人数</th><th class="num">DOT</th><th class="num">医生数</th></tr>'
+      : '<tr><th class="rank">#</th><th>医疗单位</th><th>处方科室</th><th>处方医生</th><th class="num">患者人数</th><th class="num">DOT</th></tr>';
+    let body = rows.length ? rows.map((r,i)=> isHosp
+      ? '<tr><td class="rank">'+(i+1)+'</td><td>'+esc(r.hosp)+'</td><td class="num">'+num(r.patients)+'</td><td class="num">'+r.dot.toFixed(2)+'</td><td class="num">'+r.docCount+'</td></tr>'
+      : '<tr class="'+(r.opp?'opp':'')+'"><td class="rank">'+(i+1)+'</td><td>'+esc(r.hosp)+'</td><td>'+esc(r.dept)+'</td><td>'+esc(r.doc)+'</td><td class="num">'+num(r.patients)+'</td><td class="num">'+r.dot.toFixed(2)+'</td></tr>'
+    ).join('') : '<tr><td colspan="6" class="empty">该适应症 / 品种组合暂无数据</td></tr>';
+    tbl.innerHTML = '<table><thead>'+head+'</thead><tbody>'+body+'</tbody></table>';
+    const tt=$(side+'Title'); if(tt) tt.textContent = title;
+    const barsEl = $(side+'Bars');
+    if(barsEl){
+      if(!isHosp && rows.length){
+        const byHosp = {};
+        rows.forEach(r=>{ const h=r.hosp; if(!byHosp[h]) byHosp[h]={hosp:h,patients:0,docs:{}}; byHosp[h].patients+=r.patients; byHosp[h].docs[r.doc]=1; });
+        const arr = Object.keys(byHosp).map(k=>byHosp[k]).sort((a,b)=>b.patients-a.patients).slice(0,10);
+        const max = arr.length?arr[0].patients:1;
+        barsEl.innerHTML = '<div class="bars-title">TOP 医院（按患者数合计，医生以 / 间隔）</div>' + arr.map(g=>{
+          const pct=(g.patients/max*100).toFixed(1);
+          const docs=Object.keys(g.docs).join('/');
+          return '<div class="bar-row"><div class="bar-name">'+esc(g.hosp)+' / '+esc(docs)+'</div><div class="bar-track"><div class="bar-fill" style="width:'+pct+'%"></div></div><div class="bar-val">'+num(g.patients)+'</div></div>';
+        }).join('');
+      } else { barsEl.innerHTML=''; }
+    }
+  }
+  function sync(){
+    const ct=$('catTabs'); if(ct){ [...ct.children].forEach(b=> b.classList.toggle('active', b.textContent===st.cat)); }
+    const mcs=$('mviewCatSel'); if(mcs) mcs.value=st.cat;
+    if($('leftTable')){ drawSide('left', '焦点品种：'+st.focus); drawSide('right', '同类竞品整体（'+(SHARE.meta.compCount)+' 个品种）'); }
+    if($('mview')){ buildHospSel(); renderMview(); }
+  }
+
+  /* ===== 多维分析视角渲染（纯 CSS / SVG，无外部库） ===== */
+  function renderShare(){
+    const catData = SHARE.data[st.cat];
+    if(!catData || !catData._charts){ $('mview').innerHTML='<div class="empty">暂无数据</div>'; return; }
+    const items = catData._charts.share||[];
+    const tot = items.reduce((a,b)=>a+b.patients,0)||1;
+    const max = Math.max(...items.map(x=>x.patients),0)||1;
+    let rows = items.map(it=>{
+      const isF = it.prod===st.focus;
+      return '<tr class="'+(isF?'c-focus':'')+'"><td>'+esc(it.prod)+(isF?' ★':'')+'</td><td class="num">'+num(it.patients)+'</td><td class="num">'+(it.patients/tot*100).toFixed(1)+'%</td><td class="num">'+num(it.qty)+'</td></tr>';
+    }).join('');
+    let bars = items.map(it=>{
+      const isF = it.prod===st.focus;
+      const w=(it.patients/max*100).toFixed(1);
+      const color = isF?'linear-gradient(90deg,#3f6fb5,#5b8dd6)':'#c2cce0';
+      return '<div class="bar-row"><div class="bar-name">'+esc(it.prod)+(isF?' ★':'')+'</div><div class="bar-track"><div class="bar-fill" style="width:'+w+'%;background:'+color+'"></div></div><div class="bar-val">'+num(it.patients)+'</div></div>';
+    }).join('');
+    $('mview').innerHTML = '<div class="mv-head">各品种去重患者数（当前口径）</div><table><thead><tr><th>品种</th><th class="num">患者数</th><th class="num">患者占比</th><th class="num">销量(转化后数量)</th></tr></thead><tbody>'+rows+'</tbody></table><div class="bars">'+bars+'</div>';
+  }
+  function renderCity(){
+    const fd = SHARE.data[st.cat][st.focus].charts.city||[];
+    let rows='', bars='';
+    fd.forEach(x=>{
+      const tot=x.f+x.c||1;
+      rows += '<tr><td>'+esc(x.city)+'</td><td class="num">'+num(x.f)+'</td><td class="num">'+num(x.c)+'</td><td class="num">'+(x.f/tot*100).toFixed(1)+'%</td></tr>';
+      bars += '<div class="city-grp"><div class="bar-row"><div class="bar-name">'+esc(x.city)+'·焦点</div><div class="bar-track"><div class="bar-fill" style="width:'+(x.f/tot*100).toFixed(1)+'%"></div></div><div class="bar-val">'+num(x.f)+'</div></div>';
+      bars += '<div class="bar-row"><div class="bar-name">'+esc(x.city)+'·竞品</div><div class="bar-track"><div class="bar-fill" style="width:'+(x.c/tot*100).toFixed(1)+'%;background:#c2cce0"></div></div><div class="bar-val">'+num(x.c)+'</div></div></div>';
+    });
+    $('mview').innerHTML = '<div class="mv-head">各城市去重患者数：焦点品种 vs 竞品合计（TOP15）</div><table><thead><tr><th>城市</th><th class="num">焦点患者数</th><th class="num">竞品患者数</th><th class="num">焦点占比</th></tr></thead><tbody>'+rows+'</tbody></table><div class="bars">'+bars+'</div>';
+  }
+  function renderTrend(){
+    const t = (SHARE.data[st.cat][st.focus].charts.trend)||{months:[],fP:[],cP:[],fQ:[],cQ:[]};
+    const metric = st.trendMetric;
+    const fD = metric==='patients'? t.fP : t.fQ;
+    const cD = metric==='patients'? t.cP : t.cQ;
+    const W=660,H=260,pl=46,pr=14,pt=18,pb=30;
+    const innerW=W-pl-pr, innerH=H-pt-pb;
+    const maxV=Math.max(...fD,...cD,1);
+    const n=t.months.length;
+    const X=i=> n<=1? pl+innerW/2 : pl+innerW*i/(n-1);
+    const Y=v=> pt+innerH*(1-v/maxV);
+    const path=arr=> arr.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)).join(' ');
+    let svg='<svg viewBox="0 0 '+W+' '+H+'" class="trend-svg" preserveAspectRatio="xMidYMid meet">';
+    for(let g=0;g<=4;g++){ const yy=pt+innerH*g/4; svg+='<line x1="'+pl+'" y1="'+yy+'" x2="'+(W-pr)+'" y2="'+yy+'" stroke="#eef1f7"/><text x="'+(pl-6)+'" y="'+(yy+4)+'" text-anchor="end" class="axis">'+Math.round(maxV*(1-g/4))+'</text>'; }
+    svg+='<path d="'+path(fD)+'" fill="none" stroke="#305496" stroke-width="2.5"/>';
+    svg+='<path d="'+path(cD)+'" fill="none" stroke="#b9c4dd" stroke-width="2.5"/>';
+    const step=Math.ceil(n/8);
+    t.months.forEach((m,i)=>{ if(i%step===0||i===n-1){ svg+='<text x="'+X(i)+'" y="'+(H-9)+'" text-anchor="middle" class="axis">'+m+'</text>'; } });
+    svg+='<g transform="translate('+(pl+8)+','+(pt+4)+')"><rect width="12" height="8" fill="#305496"/><text x="16" y="8" class="axis">焦点 '+esc(st.focus)+'</text><rect x="110" width="12" height="8" fill="#b9c4dd"/><text x="126" y="8" class="axis">竞品合计</text></g>';
+    svg+='</svg>';
+    $('mview').innerHTML='<div class="mv-head">月度趋势（'+(metric==='patients'?'去重患者数':'转化后数量')+'）</div>'+svg;
+  }
+  function renderProfile(){
+    const p = SHARE.data[st.cat][st.focus].charts.profile||{age:[],sex:[]};
+    let ageRows=p.age.map(b=>'<tr><td>'+b.label+'</td><td class="num">'+b.fPct+'%</td><td class="num">'+b.cPct+'%</td></tr>').join('');
+    let ageBars=p.age.map(b=>{
+      return '<div class="bar-row"><div class="bar-name">'+b.label+'·焦点</div><div class="bar-track"><div class="bar-fill" style="width:'+b.fPct+'%"></div></div><div class="bar-val">'+b.fPct+'%</div></div>'
+           + '<div class="bar-row"><div class="bar-name">'+b.label+'·竞品</div><div class="bar-track"><div class="bar-fill" style="width:'+b.cPct+'%;background:#c2cce0"></div></div><div class="bar-val">'+b.cPct+'%</div></div>';
+    }).join('');
+    let sexRows=p.sex.map(b=>'<tr><td>'+b.label+'</td><td class="num">'+b.fPct+'%</td><td class="num">'+b.cPct+'%</td></tr>').join('');
+    let sexBars=p.sex.map(b=>{
+      return '<div class="bar-row"><div class="bar-name">'+b.label+'·焦点</div><div class="bar-track"><div class="bar-fill" style="width:'+b.fPct+'%"></div></div><div class="bar-val">'+b.fPct+'%</div></div>'
+           + '<div class="bar-row"><div class="bar-name">'+b.label+'·竞品</div><div class="bar-track"><div class="bar-fill" style="width:'+b.cPct+'%;background:#c2cce0"></div></div><div class="bar-val">'+b.cPct+'%</div></div>';
+    }).join('');
+    $('mview').innerHTML='<div class="mv-head">患者画像差异（组内占比 %，当前口径）</div>'
+      + '<h4>年龄分层</h4><table><thead><tr><th>年龄段</th><th class="num">焦点品种</th><th class="num">竞品合计</th></tr></thead><tbody>'+ageRows+'</tbody></table><div class="bars">'+ageBars+'</div>'
+      + '<h4>性别</h4><table><thead><tr><th>性别</th><th class="num">焦点品种</th><th class="num">竞品合计</th></tr></thead><tbody>'+sexRows+'</tbody></table><div class="bars">'+sexBars+'</div>';
+  }
+  function renderHosp(){
+    const catData=SHARE.data[st.cat];
+    const list=catData._charts.hospList||[];
+    if(!st.lockHosp && list.length) st.lockHosp=list[0].hosp;
+    const items=catData._charts.hospShare[st.lockHosp]||[];
+    const tot=items.reduce((a,b)=>a+b.patients,0)||1;
+    const max=Math.max(...items.map(x=>x.patients),0)||1;
+    let rows=items.map(it=>{
+      const isF=it.prod===st.focus;
+      return '<tr class="'+(isF?'c-focus':'')+'"><td>'+esc(it.prod)+(isF?' ★':'')+'</td><td class="num">'+num(it.patients)+'</td><td class="num">'+(it.patients/tot*100).toFixed(1)+'%</td><td class="num">'+num(it.qty)+'</td></tr>';
+    }).join('');
+    let bars=items.map(it=>{
+      const isF=it.prod===st.focus;
+      const w=(it.patients/max*100).toFixed(1);
+      const color=isF?'linear-gradient(90deg,#3f6fb5,#5b8dd6)':'#c2cce0';
+      return '<div class="bar-row"><div class="bar-name">'+esc(it.prod)+(isF?' ★':'')+'</div><div class="bar-track"><div class="bar-fill" style="width:'+w+'%;background:'+color+'"></div></div><div class="bar-val">'+num(it.patients)+'</div></div>';
+    }).join('');
+    $('mview').innerHTML='<div class="mv-head">'+(st.lockHosp||'')+' · 各品种去重患者数（当前口径）</div><table><thead><tr><th>品种</th><th class="num">患者数</th><th class="num">患者占比</th><th class="num">销量(转化后数量)</th></tr></thead><tbody>'+rows+'</tbody></table><div class="bars">'+bars+'</div>';
+  }
+  function renderMview(){
+    const el=$('mview'); if(!el) return;
+    const fd = SHARE.data[st.cat] && SHARE.data[st.cat][st.focus];
+    if(!fd){ el.innerHTML='<div class="empty">该适应症 / 品种组合暂无数据</div>'; return; }
+    const m=st.mview;
+    if(m==='share') renderShare();
+    else if(m==='city') renderCity();
+    else if(m==='trend') renderTrend();
+    else if(m==='profile') renderProfile();
+    else if(m==='hosp') renderHosp();
+    const tc=$('trendCtl'); if(tc) tc.style.display = (m==='trend')?'':'none';
+    const hc=$('hospCtl'); if(hc) hc.style.display = (m==='hosp')?'':'none';
+  }
+  function buildHospSel(){
+    const hs=$('lockHospSel'); if(!hs) return;
+    hs.innerHTML='';
+    const hlist=(SHARE.data[st.cat]&&SHARE.data[st.cat]._charts.hospList)||[];
+    let keep=st.lockHosp;
+    if(!hlist.some(o=>o.hosp===keep)) keep=hlist.length?hlist[0].hosp:'';
+    st.lockHosp=keep;
+    hlist.forEach(o=>{ const op=document.createElement('option'); op.value=o.hosp; op.textContent=o.hosp+'（'+num(o.patients)+' 人）'; hs.appendChild(op); });
+    hs.value=keep;
+    hs.onchange=e=>{ st.lockHosp=e.target.value; if(st.mview==='hosp') renderHosp(); };
+  }
+  function init(){
+    const ct=$('catTabs');
+    SHARE.meta.cats.forEach(c=>{ const b=document.createElement('button'); b.className='tab'+(c===st.cat?' active':''); b.textContent=c; b.onclick=()=>{st.cat=c;sync();}; ct.appendChild(b); });
+    if(hasMulti){
+      const mt=$('mviewTabs');
+      const mvNames={share:'竞品份额',city:'城市视角',trend:'时间趋势',profile:'患者画像',hosp:'医院份额'};
+      mvKeys.forEach(m=>{ const b=document.createElement('button'); b.className='tab'+(m===st.mview?' active':''); b.textContent=mvNames[m]; b.onclick=()=>{ st.mview=m; [...mt.children].forEach(x=>x.classList.remove('active')); b.classList.add('active'); renderMview(); }; mt.appendChild(b); });
+      const mcs=$('mviewCatSel');
+      if(mcs){
+        SHARE.meta.cats.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=c; if(c===st.cat)o.selected=true; mcs.appendChild(o); });
+        mcs.onchange=()=>{ st.cat=mcs.value; sync(); };
+      }
+    }
+    const fs=$('focusSel');
+    SHARE.meta.products.forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; if(p===st.focus) o.selected=true; fs.appendChild(o); });
+    fs.onchange=()=>{ st.focus=fs.value; sync(); };
+    const ms=$('modeSel');
+    if(ms){ ms.value=st.mode; ms.onchange=e=>{ st.mode=e.target.value; sync(); }; }
+    $('sortSel').value = st.sort;
+    $('sortSel').onchange=e=>{ st.sort=e.target.value; sync(); };
+    const ts=$('trendSel');
+    if(ts){ ts.value=st.trendMetric; ts.onchange=e=>{ st.trendMetric=e.target.value; if(st.mview==='trend') renderTrend(); }; }
+    sync();
+  }
+  init();
+})();
+<\/script>
+</body></html>`;
+}
+
+/* ============ 事件绑定 ============ */
+document.getElementById('drop').addEventListener('click', ()=>document.getElementById('fileInput').click());
+document.getElementById('fileInput').addEventListener('change', e=>{ if(e.target.files[0]) parseFile(e.target.files[0]); });
+const drop=document.getElementById('drop');
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('hover');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('hover');}));
+drop.addEventListener('drop', e=>{ const f=e.dataTransfer.files[0]; if(f) parseFile(f); });
+
+document.getElementById('timePreset').addEventListener('change', e=>{
+  STATE.timePreset=e.target.value;
+  document.getElementById('customRange').classList.toggle('hidden', e.target.value!=='custom');
+  recalcAsync();
+});
+document.getElementById('dateStart').addEventListener('change', e=>{ STATE.customStart=e.target.value; recalcAsync(); });
+document.getElementById('dateEnd').addEventListener('change', e=>{ STATE.customEnd=e.target.value; recalcAsync(); });
+document.getElementById('sortBy').addEventListener('change', recalcAsync);
+document.getElementById('topN').addEventListener('change', recalcAsync);
+document.getElementById('maskMode').addEventListener('change', recalcAsync);
+document.getElementById('recalc').addEventListener('click', recalcAsync);
+document.getElementById('exportBtn').addEventListener('click', exportExcel);
+/* ============ 导出分享版 · 内容选项弹窗 ============ */
+function presentCats(){
+  const {start,end}=getWindow();
+  const inWin=RAW.filter(r=> r.d>=start && r.d<=end);
+  const byCat={整体:inWin};
+  for(const r of inWin){ const c=r.cat||'其他'; if(c==='整体') continue; (byCat[c]||(byCat[c]=[])).push(r); }
+  const order=['整体','皮科','消化','关节','其他'];
+  return order.filter(c=> byCat[c] && byCat[c].length);
+}
+function fillShareChecks(){
+  const cats=presentCats();
+  const cEl=document.getElementById('optCats'); cEl.innerHTML='';
+  cats.forEach(c=>{ const l=document.createElement('label'); l.innerHTML='<input type="checkbox" data-cat="'+esc(c)+'" checked> '+esc(c); cEl.appendChild(l); });
+  const pEl=document.getElementById('optProducts'); pEl.innerHTML='';
+  PRODUCTS.forEach(p=>{ const l=document.createElement('label'); l.innerHTML='<input type="checkbox" data-prod="'+esc(p)+'" checked> '+esc(p); pEl.appendChild(l); });
+}
+function openShareModal(){
+  if(!RAW.length){ alert('请先上传数据底表并计算'); return; }
+  if(_loading){ alert('正在计算中，请稍候'); return; }
+  fillShareChecks();
+  document.querySelectorAll('#optSections input').forEach(i=>i.checked=true);
+  document.querySelectorAll('#optMulti input').forEach(i=>i.checked=true);
+  const multiOn=document.querySelector('#optSections input[data-sec="multi"]').checked;
+  document.getElementById('optMultiGroup').style.opacity = multiOn? '1':'0.45';
+  document.querySelectorAll('#optMulti input').forEach(i=>{ i.disabled=!multiOn; });
+  document.getElementById('shareModal').classList.remove('hidden');
+  const d=document.getElementById('shareDone'); if(d) d.classList.add('hidden');
+  const rb=document.getElementById('shareRemoteBtn');
+  if(rb){ rb.disabled=false; rb.textContent='🚀 远程部署（公网链接）'; }
+  const rt=document.getElementById('remoteTip'); if(rt) rt.textContent='';
+}
+function closeShareModal(){ document.getElementById('shareModal').classList.add('hidden'); }
+function getShareOpts(){
+  const cats=[...document.querySelectorAll('#optCats input:checked')].map(i=>i.getAttribute('data-cat'));
+  const products=[...document.querySelectorAll('#optProducts input:checked')].map(i=>i.getAttribute('data-prod'));
+  const sec={doctor:false,hospital:false,multi:false};
+  document.querySelectorAll('#optSections input').forEach(i=>{ sec[i.getAttribute('data-sec')]=i.checked; });
+  const mv={share:false,city:false,trend:false,profile:false,hosp:false};
+  document.querySelectorAll('#optMulti input').forEach(i=>{ mv[i.getAttribute('data-mv')]=i.checked; });
+  return {cats, products, sections:sec, multi:mv};
+}
+document.getElementById('shareBtn').addEventListener('click', openShareModal);
+document.getElementById('shareModalClose').addEventListener('click', closeShareModal);
+document.getElementById('shareModalCancel').addEventListener('click', closeShareModal);
+document.getElementById('shareModal').addEventListener('click', e=>{ if(e.target.id==='shareModal') closeShareModal(); });
+document.querySelectorAll('#shareModal .all-link').forEach(a=>a.addEventListener('click', ()=>{
+  const kind=a.getAttribute('data-all');
+  if(kind==='cats') document.querySelectorAll('#optCats input').forEach(i=>i.checked=true);
+  else if(kind==='products') document.querySelectorAll('#optProducts input').forEach(i=>i.checked=true);
+  else if(kind==='multi') document.querySelectorAll('#optMulti input').forEach(i=>i.checked=true);
+}));
+document.getElementById('optSections').addEventListener('change', e=>{
+  const multiOn=document.querySelector('#optSections input[data-sec="multi"]').checked;
+  document.getElementById('optMultiGroup').style.opacity = multiOn? '1':'0.45';
+  document.querySelectorAll('#optMulti input').forEach(i=>{ i.disabled=!multiOn; });
+});
+
+/* 导出分享版：确认后自动落盘 + 起服务 + 弹窗展示链接+二维码 */
+let _lastShareHtml='';
+function showShareDone(link, note){
+  const d=document.getElementById('shareDone'); if(!d) return; d.classList.remove('hidden');
+  const inp=document.getElementById('shareLink');
+  if(inp){ inp.value=link||''; }
+  // 生成二维码
+  const qrEl=document.getElementById('shareQr'); if(qrEl) qrEl.innerHTML='';
+  if(link && qrEl && typeof QRCode!=='undefined'){
+    try{ new QRCode(qrEl, {text:link, width:180, height:180, colorDark:'#1f2733', colorLight:'#ffffff', correctLevel:QRCode.CorrectLevel.M}); }catch(e){}
+  }
+  const n=document.getElementById('shareNote'); if(n) n.textContent=note||'';
+}
+// 一键复制链接
+document.getElementById('shareCopyBtn').addEventListener('click', ()=>{
+  const inp=document.getElementById('shareLink');
+  if(!inp||!inp.value) return;
+  navigator.clipboard.writeText(inp.value).then(()=>{
+    const btn=document.getElementById('shareCopyBtn');
+    btn.textContent='✅ 已复制'; setTimeout(()=>{ btn.textContent='📋 复制链接'; },1500);
+  }).catch(()=>{ /* 降级 */ });
+});
+
+// 远程部署按钮：纯前端无法自动上云，点击后提示用户去对话说「部署」
+document.getElementById('shareRemoteBtn').addEventListener('click', ()=>{
+  const tip=document.getElementById('remoteTip');
+  if(tip){
+    tip.innerHTML='✅ 分享版已就绪于 <code>share_preview/</code>。<b>请在对话中说「部署」</b>，我立即上传云端并生成公网链接 + 二维码（数据已脱敏，无底表 / oneid / 原始处方）。';
+  }
+  const btn=document.getElementById('shareRemoteBtn');
+  btn.textContent='✅ 已就绪，去对话说「部署」';
+  btn.disabled=true;
+});
+
+// 获取本机局域网 IP（用于生成手机可扫的链接）
+function getLanIP(){
+  // 优先从 RTCPeerConnection 获取（最可靠）
+  try{
+    const pc = new RTCPeerConnection({iceServers:[]});
+    pc.createDataChannel('');
+    pc.createOffer().then(o=>pc.setLocalDescription(o));
+    return new Promise(resolve=>{
+      pc.onicecandidate=e=>{
+        if(!e||!e.candidate) return;
+        const cand=e.candidate.candidate;
+        const m=cand.match(/(\d+\.\d+\.\d+\.\d+)/);
+        if(m && m[1]!=='0.0.0.0'){ resolve(m[1]); pc.close(); }
+      };
+      setTimeout(()=>{ pc.close(); resolve('127.0.0.1'); },800);
+    });
+  }catch(e){ return Promise.resolve('127.0.0.1'); }
+}
+
+// 自动落盘到 share_preview/（通过 serve.js 的 POST /save 接口）
+async function autoSaveShare(html){
+  try {
+    const resp = await fetch('http://127.0.0.1:8080/save', {
+      method:'POST', headers:{'Content-Type':'text/html;charset=utf-8'}, body:html,
+    });
+    const j = await resp.json();
+    return j.ok ? true : false;
+  } catch(e) { return false; }
+}
+
+// 确认导出按钮
+document.getElementById('shareModalOk').addEventListener('click', async ()=>{
+  const opts=getShareOpts();
+  if(!opts.sections.doctor && !opts.sections.hospital && !opts.sections.multi){ alert('请至少选择一项导出内容（医生明细 / 医院汇总 / 多维分析视角）'); return; }
+  if(opts.sections.multi && !Object.values(opts.multi).some(Boolean)){ alert('已勾选「多维分析视角」，请至少选择一项子视图'); return; }
+
+  const btn=document.getElementById('shareModalOk');
+  btn.disabled=true; btn.textContent='⏳ 生成中…';
+
+  const html = buildShareHTML(opts);
+  if(!html){ btn.disabled=false; btn.textContent='确认导出'; return; }
+  _lastShareHtml = html;
+
+  // 尝试自动落盘
+  const saved = await autoSaveShare(html);
+
+  // 获取本机 IP 用于链接展示
+  const ip = await getLanIP();
+
+  if(saved){
+    // 服务在跑 → 直接展示链接 + 二维码
+    const link = `http://${ip}:8080/share_preview/index.html`;
+    showShareDone(link, `已自动保存到 share_preview/。手机同 WiFi 扫码即可查看。如需远程访问，在本对话对我说「部署」。`);
+  } else {
+    // 服务没跑 → 提示启动
+    showShareDone('', '本地服务未运行，分享版仅下载到本地。请双击工作区的 serve.bat 启动服务后重新导出，即可获得扫码链接。（或直接把下载的 HTML 发给对方用浏览器打开）');
+  }
+
+  btn.disabled=false; btn.textContent='确认导出';
+});
+
+document.querySelectorAll('#catTabs .tab').forEach(t=>{
+  t.addEventListener('click', ()=>{
+    document.querySelectorAll('#catTabs .tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    STATE.cat=t.dataset.cat;
+    const c=document.getElementById('chartCatSel'); if(c) c.value=STATE.cat;
+    recalcAsync();
+  });
+});
+
+/* 表内视图切换：医生明细 / 医院汇总（仅切换渲染，复用 GVIEW 双视图聚合，不重算） */
+document.querySelectorAll('.vtab').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    const side=b.dataset.side, view=b.dataset.view;
+    if(STATE.viewMode[side]===view) return;
+    STATE.viewMode[side]=view;
+    document.querySelectorAll(`.vtab[data-side="${side}"]`).forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    renderSide(side);
+  });
+});
+
+document.getElementById('compAll').addEventListener('click', ()=>{
+  document.querySelectorAll('#compList input').forEach(cb=>{cb.checked=true; STATE.competitors.add(cb.value);}); recalcAsync();
+});
+document.getElementById('compNone').addEventListener('click', ()=>{
+  document.querySelectorAll('#compList input').forEach(cb=>{cb.checked=false; STATE.competitors.delete(cb.value);}); recalcAsync();
+});
+document.getElementById('compInv').addEventListener('click', ()=>{
+  document.querySelectorAll('#compList input').forEach(cb=>{cb.checked=!cb.checked; cb.checked?STATE.competitors.add(cb.value):STATE.competitors.delete(cb.value);}); recalcAsync();
+});
+
+/* 多维分析 tab 切换 */
+document.querySelectorAll('#chartTabs .chart-tab').forEach(t=>{
+  t.addEventListener('click', ()=>{
+    document.querySelectorAll('#chartTabs .chart-tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    const name = t.dataset.chart;
+    STATE.chartTab = name;
+    document.querySelectorAll('.chart-pane').forEach(p=>{
+      p.classList.toggle('hidden', p.dataset.pane!==name);
+    });
+    renderCharts();
+  });
+});
+
+/* 多维分析视角内的适应症大类下拉（与顶部 catTabs 双向联动） */
+let _chartCatSelBound=false;
+function fillChartCatSel(){
+  const sel=document.getElementById('chartCatSel'); if(!sel) return;
+  const cats=presentCats();
+  let cur = cats.includes(STATE.cat)? STATE.cat : (cats[0]||'整体');
+  if(cur!==STATE.cat){ STATE.cat=cur; }
+  sel.innerHTML='';
+  cats.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=c; if(c===cur)o.selected=true; sel.appendChild(o); });
+  if(!_chartCatSelBound){
+    _chartCatSelBound=true;
+    sel.addEventListener('change', ()=>{
+      STATE.cat=sel.value;
+      document.querySelectorAll('#catTabs .tab').forEach(x=>x.classList.toggle('active', x.dataset.cat===STATE.cat));
+      recalcAsync();
+    });
+  }
+}
+/* 时间趋势指标切换 */
+document.getElementById('trendMetric').addEventListener('change', e=>{
+  STATE.trendMetric = e.target.value;
+  if(STATE.chartTab==='trend') renderCharts();
+});
+/* 医院份额：锁定医院切换 */
+document.getElementById('lockHospital').addEventListener('change', e=>{
+  STATE.lockHospital = e.target.value;
+  drawHospChart();
+});
+
+function syncCompList(){
+  document.querySelectorAll('#compList input').forEach(cb=>{ cb.checked = STATE.competitors.has(cb.value); });
+}
+
+function setStatus(msg, isErr){
+  const el=document.getElementById('status');
+  el.classList.remove('hidden'); el.textContent=msg;
+  el.className='status'+(isErr?' err':'');
+}
+</script>
+
+<!-- 加载中遮罩 -->
+<div id="loading">
+  <div class="box">
+    <div class="spin"></div>
+    <div class="lt" id="loadTitle">正在处理…</div>
+    <div class="ls" id="loadMsg"></div>
+    <div class="bar"><i id="loadBar"></i></div>
+  </div>
+</div>
+</body>
+</html>
