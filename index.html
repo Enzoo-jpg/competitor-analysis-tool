@@ -1578,6 +1578,7 @@ function renderHB(){
 function recalc(){
   if(_loading) setLoadingMsg('正在聚合与计算 DOT…');
   if(!RAW.length) return;
+  try {
   STATE.topN = Math.max(5, parseInt(document.getElementById('topN').value)||30);
   STATE.sortBy = document.getElementById('sortBy').value;
   STATE.maskMode = document.getElementById('maskMode').value;
@@ -1633,7 +1634,12 @@ function recalc(){
   fillChartCatSel(); // 同步多维视角内的适应症下拉
   populateHbMonths();
   renderHB();
-  hideLoading();
+  } catch(err) {
+    console.error('recalc 异常:', err);
+    if(typeof setStatus==='function') setStatus('计算出现异常：' + (err && err.message ? err.message : err), true);
+  } finally {
+    hideLoading();
+  }
 }
 
 // 根据当前 Tab 视图渲染某一侧（医生明细 / 医院汇总）
@@ -2555,6 +2561,31 @@ function calcHospShare(catRows, hosp){
   for(const r of catRows){ if(r.hosp!==hosp)continue; let s=pat.get(r.prod); if(!s){s=new Set();pat.set(r.prod,s);} s.add(r.oneid+'|'+r.invoice); qty.set(r.prod,(qty.get(r.prod)||0)+r.convQty); }
   return [...pat.entries()].map(([prod,s])=>({prod,patients:s.size,qty:qty.get(prod)||0})).sort((a,b)=>b.patients-a.patients);
 }
+// 单次遍历 O(N) 同时算出「医院列表」与各「医院×品种」份额，避免对每家医院全表扫描（O(H*N)）
+// 返回 {hospList:[{hosp,patients}], hospShare:{hosp:[{prod,patients,qty}]}}，结构与 calcHospList+calcHospShare 完全一致
+function calcHospShareAll(catRows){
+  const perHosp = new Map();   // hosp -> {patients:Set, prodPat:Map<prod,Set>, prodQty:Map<prod,number>}
+  for(const r of catRows){
+    let h = perHosp.get(r.hosp);
+    if(!h){ h = { patients:new Set(), prodPat:new Map(), prodQty:new Map() }; perHosp.set(r.hosp, h); }
+    const key = r.oneid+'|'+r.invoice;
+    h.patients.add(key);
+    let pp = h.prodPat.get(r.prod);
+    if(!pp){ pp=new Set(); h.prodPat.set(r.prod, pp); }
+    pp.add(key);
+    h.prodQty.set(r.prod, (h.prodQty.get(r.prod)||0) + r.convQty);
+  }
+  const hospList = [...perHosp.entries()]
+    .map(([hosp, h])=>({ hosp, patients:h.patients.size }))
+    .sort((a,b)=> b.patients - a.patients);
+  const hospShare = {};
+  for(const [hosp, h] of perHosp){
+    hospShare[hosp] = [...h.prodPat.entries()]
+      .map(([prod, s])=>({ prod, patients:s.size, qty:h.prodQty.get(prod)||0 }))
+      .sort((a,b)=> b.patients - a.patients);
+  }
+  return { hospList, hospShare };
+}
 
 function buildShareData(opts){
   opts = opts || {};
@@ -2589,10 +2620,9 @@ function buildShareData(opts){
     if(sec.multi){
       data[cat]._charts.share = mv.share ? calcShareAll(catRows) : [];
       if(mv.hosp){
-        data[cat]._charts.hospList = calcHospList(catRows);
-        const hospShare = {};
-        data[cat]._charts.hospList.forEach(o=>{ hospShare[o.hosp] = calcHospShare(catRows, o.hosp); });
-        data[cat]._charts.hospShare = hospShare;
+        const hs = calcHospShareAll(catRows);
+        data[cat]._charts.hospList = hs.hospList;
+        data[cat]._charts.hospShare = hs.hospShare;
       } else {
         data[cat]._charts.hospList = [];
         data[cat]._charts.hospShare = {};
