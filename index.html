@@ -236,6 +236,8 @@
   .raw-table tr:hover td{background:#f8fafd;}
   .raw-table td:first-child{word-break:break-all;max-width:320px;}
   .raw-table select{padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;color:#374151;}
+  .raw-table tr.unclassified-row td{background:#fffbf0;}
+  .raw-table select.unclassified{color:#6b7280;}
 </style>
 </head>
 <body>
@@ -1104,26 +1106,27 @@ function buildRawIndModal(ind){
   if(!rows.length){ listEl.innerHTML='<div class="empty">当前范围暂无数据</div>'; return; }
   let html='<table class="raw-table"><thead><tr><th>原始适应症</th><th class="num">患者数</th><th class="num">销量</th><th>当前映射为</th><th>改为</th></tr></thead><tbody>';
   rows.forEach(([raw,o])=>{
-    const canEdit = o.curInd !== '（未细分）';
-    const changeCell = canEdit
-      ? '<td><select data-raw="'+esc(raw)+'">'+mapTargetsOptions(o.curInd)+'</select></td>'
-      : '<td class="muted">—</td>';
-    html+='<tr data-raw="'+esc(raw)+'"><td>'+esc(raw)+'</td>'
+    const isUnclassified = o.curInd === '（未细分）';
+    const selectHtml = isUnclassified
+      ? '<select data-raw="'+esc(raw)+'" class="unclassified"><option value="" disabled selected>请选择映射目标...</option>'+mapTargetsOptions('')+'</select>'
+      : '<select data-raw="'+esc(raw)+'">'+mapTargetsOptions(o.curInd)+'</select>';
+    html+='<tr data-raw="'+esc(raw)+'"'+(isUnclassified?' class="unclassified-row"':'')+'><td>'+esc(raw)+'</td>'
       +'<td class="num">'+o.p.size.toLocaleString()+'</td>'
       +'<td class="num">'+o.q.toLocaleString()+'</td>'
       +'<td class="cur-ind">'+esc(o.curInd)+'</td>'
-      +changeCell+'</tr>';
+      +'<td>'+selectHtml+'</td></tr>';
   });
   html+='</tbody></table>';
   listEl.innerHTML=html;
   document.querySelectorAll('#rawIndList select').forEach(sel=>{
     sel.addEventListener('change', ()=>{
       const raw=sel.getAttribute('data-raw'); const target=sel.value;
+      if(!target){ const msg=document.getElementById('rawIndMsg'); if(msg) msg.textContent='请选择一个映射目标'; return; }
       const cat=ncs[target] || (catFilter||'其他');
       window.IND_MAP[raw]=[target, cat];
       saveIndOverride(raw, [target, cat]);
       recomputeIndFor(raw); recalcAsync();
-      const tr=sel.closest('tr'); if(tr){ const td=tr.querySelector('.cur-ind'); if(td) td.textContent=target; }
+      const tr=sel.closest('tr'); if(tr){ tr.classList.remove('unclassified-row'); const td=tr.querySelector('.cur-ind'); if(td) td.textContent=target; }
       const msg=document.getElementById('rawIndMsg'); if(msg) msg.textContent='已更新：'+raw+' → '+target;
     });
   });
