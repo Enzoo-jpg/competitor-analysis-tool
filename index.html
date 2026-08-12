@@ -227,6 +227,7 @@
   .modal-foot{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-top:1px solid #eef1f6;padding-top:12px;margin-top:6px;}
   .map-msg{font-size:12.5px;color:#2b8a3e;margin-left:auto;}
   .empty{color:#9aa3b2;font-size:13px;padding:14px;text-align:center;}
+  .muted{color:#9aa3b2;font-size:12.5px;}
   .raw-list{max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:8px;}
   .raw-table{width:100%;border-collapse:collapse;font-size:12.5px;}
   .raw-table th{background:#f7f9fc;padding:8px 10px;text-align:left;font-weight:600;color:#4b5563;border-bottom:1px solid var(--line);white-space:nowrap;}
@@ -1014,8 +1015,13 @@ function distinctNormInd(){
   return [...s].sort();
 }
 function mapTargetsOptions(selected){
+  const opts=distinctNormInd();
   let html='';
-  distinctNormInd().forEach(o=>{ html+='<option value="'+esc(o)+'"'+(o===selected?' selected':'')+'>'+esc(o)+'</option>'; });
+  // 若当前值不在标准列表里（如「（未细分）」），把它放在第一位并默认选中，避免浏览器误选第一项
+  if(selected && selected!=='' && !opts.includes(selected)){
+    html+='<option value="'+esc(selected)+'" selected>'+esc(selected)+'</option>';
+  }
+  opts.forEach(o=>{ html+='<option value="'+esc(o)+'"'+(o===selected?' selected':'')+'>'+esc(o)+'</option>'; });
   return html;
 }
 function recomputeIndFor(raw){
@@ -1098,11 +1104,15 @@ function buildRawIndModal(ind){
   if(!rows.length){ listEl.innerHTML='<div class="empty">当前范围暂无数据</div>'; return; }
   let html='<table class="raw-table"><thead><tr><th>原始适应症</th><th class="num">患者数</th><th class="num">销量</th><th>当前映射为</th><th>改为</th></tr></thead><tbody>';
   rows.forEach(([raw,o])=>{
+    const canEdit = o.curInd !== '（未细分）';
+    const changeCell = canEdit
+      ? '<td><select data-raw="'+esc(raw)+'">'+mapTargetsOptions(o.curInd)+'</select></td>'
+      : '<td class="muted">—</td>';
     html+='<tr data-raw="'+esc(raw)+'"><td>'+esc(raw)+'</td>'
       +'<td class="num">'+o.p.size.toLocaleString()+'</td>'
       +'<td class="num">'+o.q.toLocaleString()+'</td>'
       +'<td class="cur-ind">'+esc(o.curInd)+'</td>'
-      +'<td><select data-raw="'+esc(raw)+'">'+mapTargetsOptions(o.curInd)+'</select></td></tr>';
+      +changeCell+'</tr>';
   });
   html+='</tbody></table>';
   listEl.innerHTML=html;
