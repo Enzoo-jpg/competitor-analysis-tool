@@ -3225,7 +3225,11 @@ document.getElementById('dateEnd').addEventListener('change', e=>{ STATE.customE
 document.getElementById('sortBy').addEventListener('change', recalcAsync);
 document.getElementById('topN').addEventListener('change', recalcAsync);
 document.getElementById('maskMode').addEventListener('change', recalcAsync);
-document.getElementById('prodMask').addEventListener('change', ()=>{ buildChartProdFilter(); recalcAsync(); });
+document.getElementById('prodMask').addEventListener('change', ()=>{
+  STATE.prodMask = document.getElementById('prodMask').value;
+  buildChartProdFilter();
+  recalcAsync();
+});
 document.getElementById('recalc').addEventListener('click', recalcAsync);
 document.getElementById('exportBtn').addEventListener('click', exportExcel);
 /* ============ 导出分享版 · 内容选项弹窗 ============ */
