@@ -80,6 +80,7 @@
   .ctrl-body{display:grid;grid-template-rows:1fr;transition:grid-template-rows .25s ease,opacity .2s ease;margin-top:12px;}
   #ctrlCard.collapsed .ctrl-body{grid-template-rows:0fr;opacity:0;margin-top:0;}
   .ctrl-inner{overflow:hidden;min-height:0;}
+  #actionCard.collapsed .ctrl-body{grid-template-rows:0fr;opacity:0;margin-top:0;}
   .btn.share{background:#2e7d4f;color:#fff;border:2px solid #2e7d4f;}
   .btn.share:hover{background:#245f3d;border-color:#245f3d;}
   .btn-bar{margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;bottom:0;
@@ -372,7 +373,19 @@
           </div>
         </div>
 
-        <div class="ctl" style="margin-top:14px;">
+      </div>
+    </div>
+  </div>
+
+  <!-- 操作面板：同类品种与操作 -->
+  <div class="card hidden" id="actionCard">
+    <div class="ctrl-head" id="actionHead">
+      <h2>④ 操作面板</h2>
+      <button class="ctrl-toggle" id="actionToggle" type="button">收起 ▲</button>
+    </div>
+    <div class="ctrl-body" id="actionBody">
+      <div class="ctrl-inner">
+        <div class="ctl" style="margin-top:0;">
           <label>右表同类品种（同类合并，可多选；默认含除焦点外全部品种）</label>
           <div class="comp-ops">
             <a id="compAll">全选</a> · <a id="compNone">清空</a> · <a id="compInv">反选</a>
@@ -392,7 +405,7 @@
 
   <!-- 结果 -->
   <div class="card hidden" id="resCard">
-    <h2>④ 分析结果</h2>
+    <h2>⑤ 分析结果</h2>
     <div id="hbCard" class="hb-card"></div>
       <div id="indPanel" class="ind-panel"></div>
       <div class="ind-ops"><button class="btn ghost" id="indMapBtn">✎ 修正映射规则</button></div>
@@ -474,7 +487,7 @@
 
   <!-- 多维分析 -->
   <div class="card hidden" id="chartCard">
-    <h2>⑤ 多维分析视角</h2>
+    <h2>⑥ 多维分析视角</h2>
     <div class="chart-tabs" id="chartTabs">
       <div class="chart-tab active" data-chart="share">同类品种份额</div>
       <div class="chart-tab" data-chart="city">城市覆盖</div>
@@ -3468,21 +3481,22 @@ function setStatus(msg, isErr){
 }
 
 /* 分析维度面板 收起/展开（记忆状态） */
-function initCtrlCollapse(){
-  const card=document.getElementById('ctrlCard');
-  const head=document.getElementById('ctrlHead');
-  const btn=document.getElementById('ctrlToggle');
+function initCollapse(cardId, headId, toggleId, storageKey){
+  const card=document.getElementById(cardId);
+  const head=document.getElementById(headId);
+  const btn=document.getElementById(toggleId);
   if(!card || !head || !btn) return;
   const apply=(collapsed)=>{
     card.classList.toggle('collapsed', collapsed);
     btn.textContent = collapsed ? '展开 ▼' : '收起 ▲';
-    try{ localStorage.setItem('ctrlCollapsed', collapsed?'1':'0'); }catch(e){}
+    try{ localStorage.setItem(storageKey, collapsed?'1':'0'); }catch(e){}
   };
   head.addEventListener('click', (e)=>{ if(e.target!==btn) apply(!card.classList.contains('collapsed')); });
   btn.addEventListener('click', (e)=>{ e.stopPropagation(); apply(!card.classList.contains('collapsed')); });
-  apply(localStorage.getItem('ctrlCollapsed')==='1');
+  apply(localStorage.getItem(storageKey)==='1');
 }
-initCtrlCollapse();
+initCollapse('ctrlCard','ctrlHead','ctrlToggle','ctrlCollapsed');
+initCollapse('actionCard','actionHead','actionToggle','actionCollapsed');
 </script>
 
 <!-- 加载中遮罩 -->
