@@ -311,7 +311,7 @@
             <select id="focusSel"></select>
           </div>
           <div class="ctl">
-            <label>时间窗口（影响 DOT 计算口径）</label>
+            <label>时间窗口（决定医生/医院明细「患者人数」列；其 DOT 列固定为回滚12月，分母独立）</label>
             <select id="timePreset">
               <option value="all">全部数据</option>
               <option value="3">近 3 个月</option>
@@ -1463,6 +1463,38 @@ function mergeDoctorsByHospital(rows){
   return out;
 }
 
+// 医生/医院明细专用：患者人数按顶部时间窗口，DOT 按回滚12月窗口
+// 二者分母不同：patients = 窗口去重患者数；dot = Σ(12月转化后数量) ÷ 12月去重患者数
+function aggregateMixed(winRows, dotRows, mode){
+  const keyOf = mode==='hospital'
+    ? (r)=> r.hosp
+    : (r)=> r.hosp+'§'+r.dept+'§'+r.doctor;
+  const win = new Map();
+  for(const r of winRows){
+    const k = keyOf(r);
+    let g = win.get(k);
+    if(!g){ g = {hosp:r.hosp, dept:r.dept, doctor:r.doctor, patients:new Set(), docs:new Set()}; win.set(k,g); }
+    g.patients.add(r.oneid+'|'+r.invoice);
+    if(mode==='hospital' && r.doctor) g.docs.add(r.doctor);
+  }
+  const dotm = new Map();
+  for(const r of dotRows){
+    const k = keyOf(r);
+    let g = dotm.get(k);
+    if(!g){ g = {qty:0, patients:new Set()}; dotm.set(k,g); }
+    g.qty += r.convQty;
+    g.patients.add(r.oneid+'|'+r.invoice);
+  }
+  const out=[];
+  for(const [k,g] of win){
+    const n = g.patients.size;
+    const d = dotm.get(k);
+    const dot = (d && d.patients.size) ? d.qty/d.patients.size : 0;
+    out.push({hosp:g.hosp, dept:g.dept, doctor:g.doctor, patients:n, dot, docCount:g.docs.size});
+  }
+  return out;
+}
+
 function filterRows(prodSet, catFilter){
   const {start,end}=getWindow();
   const res=[];
@@ -1474,6 +1506,41 @@ function filterRows(prodSet, catFilter){
     res.push(r);
   }
   return res;
+}
+
+// 回滚12月窗口：以底表最新月为「基准月」，向前凑够 12 个月（含基准月本身）
+// 例：基准月 2026-07 → 2025-08-01 ~ 2026-07-31
+function getLatestYm(){
+  const ms=[...new Set(RAW.map(r=>r.d.getFullYear()+'-'+String(r.d.getMonth()+1).padStart(2,'0')))].sort();
+  return ms[ms.length-1]||'';
+}
+function dotWindow(){
+  const latest = getLatestYm();
+  if(!latest) return {start:DATE_MIN, end:DATE_MAX};
+  const [y,m]=latest.split('-').map(Number);
+  const end = new Date(y, m, 0);                 // 基准月最后一天
+  let sy=y, sm=m-11;                             // 起点月 = 基准月前推 11 个月（共 12 个自然月）
+  while(sm<=0){ sm+=12; sy-=1; }
+  const start = new Date(sy, sm-1, 1);           // 起点月第一天
+  return {start, end};
+}
+// 仅用于医生/医院明细（DOT 口径）：回滚12月窗口 + 适应症(细分)筛选
+function filterRowsDot(prodSet, catFilter){
+  const {start,end}=dotWindow();
+  const res=[];
+  for(const r of RAW){
+    if(r.d<start || r.d>end) continue;
+    if(prodSet && !prodSet.has(r.prod)) continue;
+    if(catFilter && r.cat!==catFilter) continue;
+    if(STATE.indFilter && !STATE.indFilter.has(r.ind)) continue;
+    res.push(r);
+  }
+  return res;
+}
+function getDotWinTxt(){
+  const {start,end}=dotWindow();
+  const f=d=> d ? (d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')) : '';
+  return `回滚12月（基准月 ${getLatestYm()}：${f(start)} ~ ${f(end)}）`;
 }
 
 /* ============ 脱敏（仅医生名；医院名 / 科室 保持明文） ============ */
@@ -1672,14 +1739,16 @@ function recalc(){
   buildResIndSel();
   const {start,end}=getWindow();
 
-  // 左表：焦点品种
-  const leftRows = filterRows(new Set([STATE.focus]), catFilter);
-  const leftAgg = aggregate(leftRows);          // 医生级
-  const leftHosp = aggregateHosp(leftRows);     // 医院级
+  // 左表：焦点品种（患者人数=顶部时间窗口；DOT=回滚12月窗口，分母独立）
+  const leftWin  = filterRows(new Set([STATE.focus]), catFilter);
+  const leftDot  = filterRowsDot(new Set([STATE.focus]), catFilter);
+  const leftAgg  = aggregateMixed(leftWin, leftDot, 'doctor');    // 医生级
+  const leftHosp = aggregateMixed(leftWin, leftDot, 'hospital');  // 医院级
   // 右表：所选同类品种
-  const rightRows = filterRows(STATE.competitors, catFilter);
-  const rightAgg = aggregate(rightRows);
-  const rightHosp = aggregateHosp(rightRows);
+  const rightWin  = filterRows(STATE.competitors, catFilter);
+  const rightDot  = filterRowsDot(STATE.competitors, catFilter);
+  const rightAgg  = aggregateMixed(rightWin, rightDot, 'doctor');
+  const rightHosp = aggregateMixed(rightWin, rightDot, 'hospital');
 
   // 排序（两种视图共用比较器）
   const cmp = STATE.sortBy==='dot'
@@ -1698,10 +1767,11 @@ function recalc(){
   GVIEW.right = { doctor: rightAgg, hospital: rightHosp };
 
   const winTxt = getWinTxt();
+  const dotTxt = getDotWinTxt();
   const catTxt = catFilter||'全适应症';
   GMETA = {
-    catTxt, winTxt,
-    leftRows: leftRows.length, rightRows: rightRows.length,
+    catTxt, winTxt: winTxt+'；DOT '+dotTxt,
+    leftRows: leftWin.length, rightRows: rightWin.length,
     focus: STATE.focus, compCount: STATE.competitors.size,
   };
 
@@ -1710,7 +1780,7 @@ function recalc(){
 
   const oppCount = rightAgg.slice(0,STATE.topN).filter(r=>r._opp).length;
   document.getElementById('metaLine').innerHTML =
-    `当前口径：<b>${catTxt}</b> · <b>${winTxt}</b> · 左表 <b>${leftRows.length.toLocaleString()}</b> 行 / 右表 <b>${rightRows.length.toLocaleString()}</b> 行 · 机会市场 <b>${oppCount}</b> 个`;
+    `当前口径：<b>${catTxt}</b> · 患者数=<b>${winTxt}</b> · DOT=<b>${dotTxt}</b> · 左表 <b>${leftWin.length.toLocaleString()}</b> 行 / 右表 <b>${rightWin.length.toLocaleString()}</b> 行 · 机会市场 <b>${oppCount}</b> 个`;
 
   renderCharts();   // 同步刷新多维分析图表
   fillChartCatSel(); // 同步多维视角内的适应症下拉
@@ -2353,7 +2423,7 @@ function buildRefWorkbook(ctx){
     [''],
     ['脱敏方式', '姓氏脱敏（医生保留姓）；医院名称与科室明文'],
     ['患者去重', 'oneid + 开票抬头 联合唯一'],
-    ['DOT', 'Σ(转化后数量) ÷ 窗口内去重患者数'],
+    ['DOT', 'Σ(转化后数量) ÷ 回滚12月去重患者数（oneid+开票抬头）'],
   ];
   const wsInfo = XLSX.utils.aoa_to_sheet(info);
   wsInfo['!cols'] = [{wch:22}, {wch:46}];
@@ -2811,6 +2881,10 @@ function buildShareData(opts){
   for(const r of scoped){ const c=r.cat||'其他'; if(c==='整体') continue; (byCat[c] || (byCat[c]=[])).push(r); }
   const catOrder = ['整体','皮科','消化','关节','其他'];
   const allCats = catOrder.filter(c=> byCat[c] && byCat[c].length);
+  // 医生/医院明细专用原始数据：回滚12月窗口（基准月=最新月），仅用于 DOT 列；患者人数另用窗口内数据
+  const inDot = RAW.filter(r=>{ const w=dotWindow(); return r.d>=w.start && r.d<=w.end; }).filter(r => !STATE.indFilter || STATE.indFilter.has(r.ind));
+  const byCatDot = {整体: inDot};
+  for(const r of inDot){ const c=r.cat||'其他'; if(c==='整体') continue; (byCatDot[c] || (byCatDot[c]=[])).push(r); }
   const allProducts = PRODUCTS.slice();
   // 选中范围：勾选项为空 => 全部
   const selCats = (opts.cats && opts.cats.length) ? opts.cats.filter(c=>allCats.includes(c)) : allCats;
@@ -2883,13 +2957,16 @@ function buildShareData(opts){
       data[cat]._charts = {share:[], hospList:[], hospShare:{}};
     }
     for(const focus of selProducts){
-      const left  = catRows.filter(r=> r.prod===focus);
-      const right = catRows.filter(r=> r.prod!==focus);
+      // 患者人数按窗口(catRows)，DOT按回滚12月(catRowsDot)——与主工具 recalc 口径一致
+      const leftWin  = catRows.filter(r=> r.prod===focus);
+      const leftDot  = catRowsDot.filter(r=> r.prod===focus);
+      const rightWin = catRows.filter(r=> r.prod!==focus);
+      const rightDot = catRowsDot.filter(r=> r.prod!==focus);
       let leftDoctor=[], rightDoctor=[], leftHosp=[], rightHosp=[];
       if(sec.doctor || sec.hospital){
         // 机会市场：右表(医院,科室) 不在左表 TOP15（与主工具 recalc 口径一致）
-        const leftAggU  = aggregate(left);
-        const rightAggU = aggregate(right);
+        const leftAggU  = aggregateMixed(leftWin, leftDot, 'doctor');
+        const rightAggU = aggregateMixed(rightWin, rightDot, 'doctor');
         [leftAggU, rightAggU].forEach(a=>a.sort(cmp));
         const leftTopKeys = new Set(leftAggU.slice(0,15).map(r=>r.hosp+'§'+r.dept));
         rightAggU.forEach(r=>{ r._opp = !leftTopKeys.has(r.hosp+'§'+r.dept); });
@@ -2898,8 +2975,8 @@ function buildShareData(opts){
           rightDoctor = anonymize(mergeDoctorsByHospital(rightAggU).sort(cmp), maskMode).map(toDocRow).slice(0,CAP);
         }
         if(sec.hospital){
-          leftHosp   = anonymize(aggregateHosp(left).sort(cmp),  maskMode).map(toHospRow).slice(0,CAP);
-          rightHosp  = anonymize(aggregateHosp(right).sort(cmp), maskMode).map(toHospRow).slice(0,CAP);
+          leftHosp   = anonymize(aggregateMixed(leftWin, leftDot, 'hospital').sort(cmp),  maskMode).map(toHospRow).slice(0,CAP);
+          rightHosp  = anonymize(aggregateMixed(rightWin, rightDot, 'hospital').sort(cmp), maskMode).map(toHospRow).slice(0,CAP);
         }
       }
       // 时间趋势/城市/患者画像 改为 cat 级"逐品种明细"存储（见上方 if(sec.multi) 块），分享版可随品种筛选实时重聚合
@@ -2920,7 +2997,7 @@ function buildShareData(opts){
       cats: selCats, products: selProducts,
       maskMode,
       maskTag: maskMode==='off' ? '不脱敏' : (maskMode==='letter' ? '字母代号脱敏' : '姓氏脱敏'),
-      winTxt: getWinTxt(),
+      winTxt: getWinTxt()+'｜DOT '+getDotWinTxt(),
       topN,
       sortBy: STATE.sortBy,
       compCount: allProducts.length-1,
