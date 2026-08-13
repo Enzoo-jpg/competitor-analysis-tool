@@ -1657,9 +1657,10 @@ function renderSide(side){
   // 医生明细模式：同一医院内同名跨科室医生合并为一行（科室用 / 拼接）
   if(mode === 'doctor') aggAll = mergeDoctorsByHospital(aggAll);
   const top = anonymize(aggAll.slice(0,STATE.topN), STATE.maskMode);
+  const indTxt = indFilterText();
   const title = side==='left'
-    ? `焦点品种：${prodLabel(GMETA.focus)}`
-    : `同类品种整体（${GMETA.compCount} 个品种）`;
+    ? `焦点品种：${prodLabel(GMETA.focus)} · 适应症：${indTxt}`
+    : `同类品种整体（${GMETA.compCount} 个品种） · 适应症：${indTxt}`;
   const sub = `${GMETA.catTxt} · ${GMETA.winTxt} · ${GMETA[side==='left'?'leftRows':'rightRows'].toLocaleString()} 行`
             + (mode==='hospital' ? ' · 医院汇总' : '');
   renderTable(side, top, title, sub, mode);
@@ -2127,7 +2128,8 @@ function exportExcel(){
   const SHARE = buildShareData();   // 用当前 UI 设置（焦点/窗口/脱敏/适应症）重算
   const wb = build12SheetWorkbook(SHARE);
   const safe = s => (s||'').replace(/[\\/:*?"<>|]/g,'_');
-  const fname = '同类品种分析_' + (STATE.prodMask==='on' ? '产品脱敏' : safe(STATE.focus)) + '_' + safe(getWinTxt()) + '.xlsx';
+  const indTag = (STATE.indFilter && STATE.indFilter.size) ? '_' + safe([...STATE.indFilter].slice(0,3).join('+')) : '';
+  const fname = '同类品种分析_' + (STATE.prodMask==='on' ? '产品脱敏' : safe(STATE.focus)) + '_' + safe(getWinTxt()) + indTag + '.xlsx';
   XLSX.writeFile(wb, fname);
   setStatus('已导出：' + fname + '（12 表 · 焦点vs同类 · 医院份额TOP20 · 各表含占比%）', false);
 }
@@ -2491,7 +2493,8 @@ function buildShareHTML(opts){
   const SHARE = buildShareData(opts);
   const html = renderShareDoc(SHARE);
   const safe = s => (s||'').replace(/[\\/:*?"<>|]/g,'_');
-  const fname = `同类品种分析_分享_${safe(SHARE.meta.focus)}.html`;
+  const indTag = (STATE.indFilter && STATE.indFilter.size) ? '_' + safe([...STATE.indFilter].slice(0,3).join('+')) : '';
+  const fname = `同类品种分析_分享_${safe(SHARE.meta.focus)}${indTag}.html`;
   const blob = new Blob([html], {type:'text/html;charset=utf-8'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
