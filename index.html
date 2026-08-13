@@ -1543,6 +1543,14 @@ function fmtD(d){ return d? d.toISOString().slice(0,10):''; }
 
 /* ============ 环比（基准月 vs 上一月） ============ */
 function hbPrevYm(ym){ const [y,m]=ym.split('-').map(Number); return m===1 ? (y-1)+'-12' : y+'-'+String(m-1).padStart(2,'0'); }
+// 当前「适应症（细分）」筛选的文本描述（供标题/导出标注），未选时回落到大类
+function indFilterText(){
+  if(STATE.indFilter && STATE.indFilter.size){
+    const arr=[...STATE.indFilter];
+    return arr.length<=3 ? arr.join('、') : (arr.slice(0,3).join('、')+' 等'+arr.length+'项');
+  }
+  return STATE.cat==='整体' ? '全适应症' : STATE.cat;
+}
 function renderHB(){
   const el=document.getElementById('hbCard'); if(!el) return;
   if(!RAW.length || !STATE.hbMonth){ el.innerHTML=''; return; }
@@ -1570,7 +1578,7 @@ function renderHB(){
     body+='<tr><td>'+r[0]+'</td>'+
       '<td class="num">'+d(r[1])+'</td><td class="num">'+pct(r[1],r[2])+'</td>'+
       '<td class="num">'+d(r[3])+'</td><td class="num">'+pct(r[3],r[4])+'</td></tr>'; });
-  el.innerHTML='<h3>环比（基准月 '+M+' vs 上月 '+prevYm+'） · 适应症：'+(STATE.cat==='整体'?'全适应症':STATE.cat)+'</h3>'+
+  el.innerHTML='<h3>环比（基准月 '+M+' vs 上月 '+prevYm+'） · 适应症：'+indFilterText()+'</h3>'+
     '<table class="hb-tbl"><thead><tr><th>指标</th><th class="num">焦点品种·本期</th><th class="num">焦点·环比</th><th class="num">同类品种合计·本期</th><th class="num">同类合计·环比</th></tr></thead><tbody>'+body+'</tbody></table>';
 }
 
@@ -2592,8 +2600,10 @@ function buildShareData(opts){
   const maskMode = STATE.maskMode;
   const {start,end} = getWindow();
   const inWin = RAW.filter(r=> r.d>=start && r.d<=end);          // 仅窗口内数据
-  const byCat = {整体: inWin};
-  for(const r of inWin){ const c=r.cat||'其他'; if(c==='整体') continue; (byCat[c] || (byCat[c]=[])).push(r); }
+  // 跟随「适应症（细分）」筛选：与界面 filterRows 三态一致——indFilter 为 null 不过滤，为空集则全空，为非空则只含已勾选
+  const scoped = inWin.filter(r => !STATE.indFilter || STATE.indFilter.has(r.ind));
+  const byCat = {整体: scoped};
+  for(const r of scoped){ const c=r.cat||'其他'; if(c==='整体') continue; (byCat[c] || (byCat[c]=[])).push(r); }
   const catOrder = ['整体','皮科','消化','关节','其他'];
   const allCats = catOrder.filter(c=> byCat[c] && byCat[c].length);
   const allProducts = PRODUCTS.slice();
@@ -2711,6 +2721,8 @@ function buildShareData(opts){
       compCount: allProducts.length-1,
       prodMask: STATE.prodMask,
       prodLetterMap: STATE.prodMask==='on' ? {...PROD_LETTER} : {},
+      indFilter: (STATE.indFilter && STATE.indFilter.size) ? [...STATE.indFilter] : null,
+      indFilterTxt: indFilterText(),
       generatedAt: fmtD(new Date()),
     },
     opts: { sections: sec, multi: mv },
@@ -2731,7 +2743,7 @@ function renderShareDoc(share){
     contentTxt.push('多维分析('+mvNames.join('/')+')');
   }
   const scopeTxt = [
-    `适应症大类：可切换（${m.cats.join(' / ')}）`,
+    `适应症大类：可切换（${m.cats.join(' / ')}）` + (m.indFilterTxt && m.indFilterTxt!=='全适应症' ? ' · 已限定：'+m.indFilterTxt : ''),
     `焦点品种：可切换（共 ${m.products.length} 个）`,
     `时间窗口：${m.winTxt}`,
     `医生脱敏：${m.maskTag}`,
