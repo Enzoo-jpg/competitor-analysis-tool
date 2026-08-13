@@ -617,7 +617,7 @@ const STATE = {
   chartTab: 'share',
   trendMetric: 'patients',
   lockHospital: null,   // 医院份额视图锁定的医院
-  chartProds: null,    // 多维分析品种筛选：null=全选，否则为 Set(选中品种名)
+  chartProds: null,    // 多维分析品种筛选：null=全选，否则为 Set(选中品种名)；空 Set=全不选（getChartProds 仍会补回焦点品种）
   viewMode: { left: 'doctor', right: 'doctor' },  // 每表视图: doctor=医生明细 / hospital=医院汇总
 };
 // 最近一次计算结果（供导出复用，保证与屏幕一致）
@@ -1208,7 +1208,7 @@ function buildChartProdFilter(){
   allCb.type = 'checkbox'; allCb.checked = (STATE.chartProds === null);
   allCb.addEventListener('change', ()=>{
     if(allCb.checked){ STATE.chartProds = null; }
-    else { STATE.chartProds = new Set(PRODUCTS); }  // 取消全选=全部选中（等价）
+    else { STATE.chartProds = new Set(); }  // 取消全选=清空（仅保留焦点）
     syncProdFilterUI();
     renderCharts();
   });
@@ -1240,13 +1240,8 @@ function syncProdFilterState(){
   if(checked === PRODUCTS.length){
     STATE.chartProds = null;   // 全选
     if(allCb) allCb.checked = true;
-  } else if(checked === 0){
-    STATE.chartProds = new Set();  // 全不选（回退为全选，至少保留一个）
-    STATE.chartProds = null;
-    if(allCb) allCb.checked = true;
-    cbs.forEach(cb => cb.checked = true);
   } else {
-    STATE.chartProds = selected;
+    STATE.chartProds = selected;  // 部分选中或全不选（允许空集，getChartProds 会补回焦点）
     if(allCb) allCb.checked = false;
   }
 }
