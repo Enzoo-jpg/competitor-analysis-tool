@@ -1877,29 +1877,36 @@ function renderShare(){
       scales:{ x:{ title:{display:true,text:'去重患者数'} } } }
   });
   // 明细表（含环比列：患者数、患者占比、销量均显示环比）
-  const tot = data.reduce((a,b)=>a+b,0) || 1;
+  // 口径固定为 STATE.hbMonth（底表最新月）vs 上一月，与⑥分析结果环比卡片保持一致
   const hbM = getHbMonth();
   const prevYm = hbM? hbPrevYm(hbM):'';
   const currPat=new Map(), prevPat=new Map(), currQty=new Map(), prevQty=new Map();
   if(hbM){ for(const r of rows){ const ym=r.d.getFullYear()+'-'+String(r.d.getMonth()+1).padStart(2,'0'); if(ym!==hbM && ym!==prevYm) continue; const pk=r.oneid+'|'+r.invoice; const isCur=ym===hbM; const pMap=isCur?currPat:prevPat, qMap=isCur?currQty:prevQty; let s=pMap.get(r.prod); if(!s){s=new Set();pMap.set(r.prod,s);} s.add(pk); qMap.set(r.prod,(qMap.get(r.prod)||0)+r.convQty); } }
   const currTot = [...currPat.values()].reduce((a,s)=>a+s.size,0)||1;
   const prevTot = [...prevPat.values()].reduce((a,s)=>a+s.size,0)||1;
+  // 表格数据统一用 hbM 月份重排
+  const hbItems = [...prods].map(p=>({
+    prod:p,
+    patients: currPat.get(p)? currPat.get(p).size : 0,
+    qty: currQty.get(p)||0,
+    isFocus: p===STATE.focus
+  })).filter(x=>x.patients>0 || x.qty>0).sort((a,b)=> b.patients - a.patients);
   let html = '<table><thead><tr><th>品种</th><th class="num">患者数</th><th class="num">患者数环比</th><th class="num">患者占比</th><th class="num">患者占比环比</th><th class="num">销量(转化后数量)</th><th class="num">销量环比</th></tr></thead><tbody>';
-  items.forEach(it=>{
+  hbItems.forEach(it=>{
     const cls = it.isFocus? 'class="c-focus"':'';
-    const cp = currPat.get(it.prod)? currPat.get(it.prod).size : 0;
+    const cp = it.patients;
     const pp = prevPat.get(it.prod)? prevPat.get(it.prod).size : 0;
-    const cq = currQty.get(it.prod)||0;
+    const cq = it.qty;
     const pq = prevQty.get(it.prod)||0;
     const curPct = currTot ? (cp/currTot*100) : 0;
     const prePct = prevTot ? (pp/prevTot*100) : 0;
     html += `<tr><td ${cls}>${esc(prodLabel(it.prod))}${it.isFocus?' ★':''}</td>`+
-            `<td class="num">${it.patients.toLocaleString()}</td>`+
-            `<td class="num">${hbHtml(it.patients, pp)}</td>`+
-            `<td class="num">${(it.patients/tot*100).toFixed(1)}%</td>`+
+            `<td class="num">${cp.toLocaleString()}</td>`+
+            `<td class="num">${hbHtml(cp, pp)}</td>`+
+            `<td class="num">${(cp/currTot*100).toFixed(1)}%</td>`+
             `<td class="num">${hbHtml(curPct, prePct)}</td>`+
-            `<td class="num">${it.qty.toLocaleString()}</td>`+
-            `<td class="num">${hbHtml(it.qty, pq)}</td></tr>`;
+            `<td class="num">${cq.toLocaleString()}</td>`+
+            `<td class="num">${hbHtml(cq, pq)}</td></tr>`;
   });
   html += '</tbody></table>';
   document.getElementById('shareTable').innerHTML = html;
@@ -1936,10 +1943,10 @@ function renderCity(){
         title:{ display:true, text:'各城市去重患者数：焦点品种 vs 同类品种合计（TOP15）' } },
       scales:{ x:{ stacked:true }, y:{ stacked:true, title:{display:true,text:'去重患者数'} } } }
   });
-  // 环比：按城市、基准月/上月聚合患者数
+  // 环比表格：口径固定为 STATE.hbMonth（底表最新月）vs 上一月，与⑥分析结果保持一致
   const hbM = getHbMonth();
   const prevYm = hbM? hbPrevYm(hbM):'';
-  function cityHbMap(rows, isFocusRows){
+  function cityHbMap(rows){
     const curMap=new Map(), prevMap=new Map();
     if(!hbM) return {cur:curMap, prev:prevMap};
     for(const r of rows){
@@ -1951,18 +1958,23 @@ function renderCity(){
     return {cur:curMap, prev:prevMap};
   }
   const fHb = cityHbMap(focusRows), cHb = cityHbMap(compRows);
+  // 用 hbM 月份数据重排 TOP15 城市
+  const hbCityMap = new Map();
+  for(const [city,s] of fHb.cur) hbCityMap.set(city,{city,f:s.size,c:0});
+  for(const [city,s] of cHb.cur){ const rec=hbCityMap.get(city); if(rec) rec.c=s.size; else hbCityMap.set(city,{city,f:0,c:s.size}); }
+  const hbArr = [...hbCityMap.values()].filter(x=>x.f>0||x.c>0).sort((a,b)=>(b.f+b.c)-(a.f+a.c)).slice(0,15);
   let html = '<table><thead><tr><th>城市</th><th class="num">' + prodLabel(STATE.focus) + '患者数</th><th class="num">患者数环比</th><th class="num">同类品种合计患者数</th><th class="num">患者数环比</th><th class="num">焦点占比</th><th class="num">焦点占比环比</th></tr></thead><tbody>';
-  arr.forEach(x=>{
-    const tot = x.f + x.c || 1;
-    const fCur=(fHb.cur.get(x.city)||new Set()).size, fPre=(fHb.prev.get(x.city)||new Set()).size;
-    const cCur=(cHb.cur.get(x.city)||new Set()).size, cPre=(cHb.prev.get(x.city)||new Set()).size;
-    const curShare = tot ? (x.f/tot*100) : 0;
+  hbArr.forEach(x=>{
+    const fCur=x.f, cCur=x.c;
+    const fPre=(fHb.prev.get(x.city)||new Set()).size, cPre=(cHb.prev.get(x.city)||new Set()).size;
+    const curTot = fCur + cCur || 1;
     const preTot = fPre + cPre || 1;
+    const curShare = curTot ? (fCur/curTot*100) : 0;
     const preShare = preTot ? (fPre/preTot*100) : 0;
-    html += `<tr><td>${esc(x.city)}</td><td class="num">${x.f.toLocaleString()}</td>`+
-            `<td class="num">${hbHtml(x.f, fPre)}</td>`+
-            `<td class="num">${x.c.toLocaleString()}</td>`+
-            `<td class="num">${hbHtml(x.c, cPre)}</td>`+
+    html += `<tr><td>${esc(x.city)}</td><td class="num">${fCur.toLocaleString()}</td>`+
+            `<td class="num">${hbHtml(fCur, fPre)}</td>`+
+            `<td class="num">${cCur.toLocaleString()}</td>`+
+            `<td class="num">${hbHtml(cCur, cPre)}</td>`+
             `<td class="num">${curShare.toFixed(1)}%</td>`+
             `<td class="num">${hbHtml(curShare, preShare)}</td></tr>`;
   });
@@ -2014,14 +2026,21 @@ function renderTrend(){
       scales:{ y:{ beginAtZero:true, title:{display:true,text: metric==='patients'?'去重患者数':'转化后数量'} },
                x:{ title:{display:true,text:'月份'} } } }
   });
-  // 月度数据表（带环比）
-  let html = '<table><thead><tr><th>月份</th><th class="num">焦点品种</th><th class="num">环比</th><th class="num">同类品种合计</th><th class="num">环比</th></tr></thead><tbody>';
-  sorted.forEach((m,i)=>{
-    const f=fData[i], c=cData[i];
-    const fp=i>0?fData[i-1]:0, cp=i>0?cData[i-1]:0;
-    html += `<tr><td>${m}</td><td class="num">${f.toLocaleString()}</td><td class="num">${hbHtml(f, fp)}</td>`+
-            `<td class="num">${c.toLocaleString()}</td><td class="num">${hbHtml(c, cp)}</td></tr>`;
-  });
+  // 月度数据表：固定为底表最新月 vs 上一月，与⑥分析结果保持一致
+  const hbM = getHbMonth();
+  const prevYm = hbM? hbPrevYm(hbM):'';
+  const idxM = hbM? sorted.indexOf(hbM) : -1;
+  const idxP = prevYm? sorted.indexOf(prevYm) : -1;
+  let html = '<table><thead><tr><th>月份</th><th class="num">焦点品种</th><th class="num">同类品种合计</th></tr></thead><tbody>';
+  if(idxM>=0){
+    html += `<tr><td>${hbM}</td><td class="num">${fData[idxM].toLocaleString()}</td><td class="num">${cData[idxM].toLocaleString()}</td></tr>`;
+  }
+  if(idxP>=0){
+    html += `<tr><td>${prevYm}</td><td class="num">${fData[idxP].toLocaleString()}</td><td class="num">${cData[idxP].toLocaleString()}</td></tr>`;
+  }
+  if(idxM>=0 && idxP>=0){
+    html += `<tr><td>环比</td><td class="num">${hbHtml(fData[idxM], fData[idxP])}</td><td class="num">${hbHtml(cData[idxM], cData[idxP])}</td></tr>`;
+  }
   html += '</tbody></table>';
   document.getElementById('trendTable').innerHTML = html;
 }
@@ -2207,6 +2226,7 @@ function drawHospChart(){
       qMap.set(r.prod,(qMap.get(r.prod)||0)+r.convQty);
     }
   }
+  // 图表保留当前时间窗口口径
   const items = [...patMap.entries()].map(([prod,s])=>({
     prod, patients: s.size, qty: qtyMap.get(prod)||0, isFocus: prod===STATE.focus
   })).filter(x=>x.patients>0 || x.qty>0);
@@ -2229,26 +2249,31 @@ function drawHospChart(){
           const pct = tot? (it.patients/tot*100).toFixed(1) : 0;
           return `患者数 ${it.patients.toLocaleString()} (${pct}%) · 销量 ${it.qty.toLocaleString()}`;
         }}},
-        title:{ display:true, text:`${hosp} · 各品种去重患者数` } },
+        title:{ display:true, text:`${hosp} · 各品种去重患者数（当前口径）` } },
       scales:{ x:{ title:{display:true,text:'去重患者数'} } } }
   });
-  const tot = data.reduce((a,b)=>a+b,0) || 1;
-  const currTotPat = [...currPat.values()].reduce((a,s)=>a+s.size,0);
-  const prevTotPat = [...prevPat.values()].reduce((a,s)=>a+s.size,0);
+  // 明细表：口径固定为 STATE.hbMonth（底表最新月）vs 上一月，与⑥分析结果保持一致
+  const currTotPat = [...currPat.values()].reduce((a,s)=>a+s.size,0)||1;
+  const prevTotPat = [...prevPat.values()].reduce((a,s)=>a+s.size,0)||1;
+  const hbItems = [...currPat.keys(), ...prevPat.keys()].map(prod=>{
+    const cp = (currPat.get(prod)||new Set()).size;
+    const cq = currQty.get(prod)||0;
+    return { prod, patients: cp, qty: cq, isFocus: prod===STATE.focus };
+  }).filter(x=>x.patients>0 || x.qty>0).sort((a,b)=>b.patients-a.patients);
   let html = '<table><thead><tr><th>品种</th><th class="num">患者数</th><th class="num">患者数环比</th><th class="num">患者占比</th><th class="num">患者占比环比</th><th class="num">销量(转化后数量)</th><th class="num">销量环比</th></tr></thead><tbody>';
-  items.forEach(it=>{
+  hbItems.forEach(it=>{
     const cls = it.isFocus? 'class="c-focus"':'';
-    const cp = (currPat.get(it.prod)||new Set()).size, pp = (prevPat.get(it.prod)||new Set()).size;
-    const cq = currQty.get(it.prod)||0, pq = prevQty.get(it.prod)||0;
-    const curShare = tot ? (it.patients/tot*100) : 0;
+    const cp = it.patients, pp = (prevPat.get(it.prod)||new Set()).size;
+    const cq = it.qty, pq = prevQty.get(it.prod)||0;
+    const curShare = currTotPat ? (cp/currTotPat*100) : 0;
     const preShare = prevTotPat ? (pp/prevTotPat*100) : 0;
     html += `<tr><td ${cls}>${esc(prodLabel(it.prod))}${it.isFocus?' ★':''}</td>`+
-            `<td class="num">${it.patients.toLocaleString()}</td>`+
-            `<td class="num">${hbHtml(it.patients, pp)}</td>`+
+            `<td class="num">${cp.toLocaleString()}</td>`+
+            `<td class="num">${hbHtml(cp, pp)}</td>`+
             `<td class="num">${curShare.toFixed(1)}%</td>`+
             `<td class="num">${hbHtml(curShare, preShare)}</td>`+
-            `<td class="num">${it.qty.toLocaleString()}</td>`+
-            `<td class="num">${hbHtml(it.qty, pq)}</td></tr>`;
+            `<td class="num">${cq.toLocaleString()}</td>`+
+            `<td class="num">${hbHtml(cq, pq)}</td></tr>`;
   });
   html += '</tbody></table>';
   document.getElementById('hospTable').innerHTML = html;
