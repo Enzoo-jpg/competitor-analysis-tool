@@ -1607,6 +1607,7 @@ function recalc(){
   STATE.maskMode = document.getElementById('maskMode').value;
   STATE.prodMask = document.getElementById('prodMask').value;
   buildProdMap();
+  buildChartProdFilter();   // PROD_LETTER 已生成，刷新多维分析品种筛选标签
   STATE.timePreset = document.getElementById('timePreset').value;
 
   const catFilter = STATE.cat==='整体'? null : STATE.cat;
