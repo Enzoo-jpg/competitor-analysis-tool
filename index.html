@@ -81,6 +81,10 @@
   #ctrlCard.collapsed .ctrl-body{grid-template-rows:0fr;opacity:0;margin-top:0;}
   .ctrl-inner{overflow:hidden;min-height:0;}
   #actionCard.collapsed .ctrl-body{grid-template-rows:0fr;opacity:0;margin-top:0;}
+  #indDistCard.collapsed .ctrl-body{grid-template-rows:0fr;opacity:0;margin-top:0;}
+  .res-head{display:flex;justify-content:space-between;align-items:center;gap:16px;}
+  .res-head h2{margin:0;}
+  #resIndSel{min-width:180px;max-width:320px;}
   .btn.share{background:#2e7d4f;color:#fff;border:2px solid #2e7d4f;}
   .btn.share:hover{background:#245f3d;border-color:#245f3d;}
   .btn-bar{margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;bottom:0;
@@ -403,46 +407,61 @@
     </div>
   </div>
 
+  <!-- 适应症（细分）分布：可折叠，默认收起 -->
+  <div class="card hidden collapsed" id="indDistCard">
+    <div class="ctrl-head" id="indDistHead">
+      <h2>⑤ 适应症（细分）分布</h2>
+      <button class="ctrl-toggle" id="indDistToggle" type="button">展开 ▼</button>
+    </div>
+    <div class="ctrl-body" id="indDistBody">
+      <div class="ctrl-inner">
+        <div id="indPanel" class="ind-panel"></div>
+        <div class="ind-ops"><button class="btn ghost" id="indMapBtn">✎ 修正映射规则</button></div>
+        <div id="mapModal" class="modal hidden">
+          <div class="modal-box">
+            <div class="modal-head">
+              <h3>适应症映射规则修正 · 当前范围：<span id="mapScope"></span></h3>
+              <button class="btn ghost" id="mapClose">✕ 关闭</button>
+            </div>
+            <p class="modal-tip">逐条「原始适应症」改归到正确的细分疾病，改完立即全局重算。修改仅存本地浏览器（localStorage），可一键导出 JSON 替换 <code>indication_map.json</code> 后重新构建。</p>
+            <div id="mapList" class="map-list"></div>
+            <div class="map-add">
+              <input id="mapNewRaw" placeholder="新增规则：原始适应症文本（如 特应性皮炎硬皮病）" />
+              <select id="mapNewTarget"></select>
+              <button class="btn" id="mapAdd">＋ 新增规则</button>
+            </div>
+            <div class="modal-foot">
+              <button class="btn ghost" id="mapReset">↺ 重置为默认映射</button>
+              <button class="btn ghost" id="mapExport">⬇ 导出映射 JSON</button>
+              <span id="mapMsg" class="map-msg"></span>
+            </div>
+          </div>
+        </div>
+        <div id="rawIndModal" class="modal hidden">
+          <div class="modal-box">
+            <div class="modal-head">
+              <h3>「<span id="rawIndTitle"></span>」原始适应症构成</h3>
+              <button class="btn ghost" id="rawIndClose">✕ 关闭</button>
+            </div>
+            <p class="modal-tip">列出当前口径下被归到该细分疾病的所有原始适应症文本。可逐条修改映射目标，改完即时重算；也可点「下钻看板」只看该适应症明细。</p>
+            <div id="rawIndList" class="raw-list"></div>
+            <div class="modal-foot">
+              <button class="btn" id="rawIndDrill">🔍 下钻看板</button>
+              <span id="rawIndMsg" class="map-msg"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 结果 -->
   <div class="card hidden" id="resCard">
-    <h2>⑤ 分析结果</h2>
+    <div class="res-head">
+      <h2>⑥ 分析结果</h2>
+      <select id="resIndSel"><option value="">全部细分</option></select>
+    </div>
     <div id="hbCard" class="hb-card"></div>
-      <div id="indPanel" class="ind-panel"></div>
-      <div class="ind-ops"><button class="btn ghost" id="indMapBtn">✎ 修正映射规则</button></div>
-      <div id="mapModal" class="modal hidden">
-        <div class="modal-box">
-          <div class="modal-head">
-            <h3>适应症映射规则修正 · 当前范围：<span id="mapScope"></span></h3>
-            <button class="btn ghost" id="mapClose">✕ 关闭</button>
-          </div>
-          <p class="modal-tip">逐条「原始适应症」改归到正确的细分疾病，改完立即全局重算。修改仅存本地浏览器（localStorage），可一键导出 JSON 替换 <code>indication_map.json</code> 后重新构建。</p>
-          <div id="mapList" class="map-list"></div>
-          <div class="map-add">
-            <input id="mapNewRaw" placeholder="新增规则：原始适应症文本（如 特应性皮炎硬皮病）" />
-            <select id="mapNewTarget"></select>
-            <button class="btn" id="mapAdd">＋ 新增规则</button>
-          </div>
-          <div class="modal-foot">
-            <button class="btn ghost" id="mapReset">↺ 重置为默认映射</button>
-            <button class="btn ghost" id="mapExport">⬇ 导出映射 JSON</button>
-            <span id="mapMsg" class="map-msg"></span>
-          </div>
-        </div>
-      </div>
-      <div id="rawIndModal" class="modal hidden">
-        <div class="modal-box">
-          <div class="modal-head">
-            <h3>「<span id="rawIndTitle"></span>」原始适应症构成</h3>
-            <button class="btn ghost" id="rawIndClose">✕ 关闭</button>
-          </div>
-          <p class="modal-tip">列出当前口径下被归到该细分疾病的所有原始适应症文本。可逐条修改映射目标，改完即时重算；也可点「下钻看板」只看该适应症明细。</p>
-          <div id="rawIndList" class="raw-list"></div>
-          <div class="modal-foot">
-            <button class="btn" id="rawIndDrill">🔍 下钻看板</button>
-            <span id="rawIndMsg" class="map-msg"></span>
-          </div>
-        </div>
-      </div>
     <div class="tables">
       <div class="tbl-card">
         <div class="tbl-head">
@@ -487,7 +506,7 @@
 
   <!-- 多维分析 -->
   <div class="card hidden" id="chartCard">
-    <h2>⑥ 多维分析视角</h2>
+    <h2>⑦ 多维分析视角</h2>
     <div class="chart-tabs" id="chartTabs">
       <div class="chart-tab active" data-chart="share">同类品种份额</div>
       <div class="chart-tab" data-chart="city">城市覆盖</div>
@@ -942,6 +961,8 @@ function loadRows(rows){
       buildControls();
       setStatus(`已加载 ${RAW.length.toLocaleString()} 行 · 品种 ${PRODUCTS.length} 个 · 时间 ${fmtD(DATE_MIN)} ~ ${fmtD(DATE_MAX)}`, false);
       document.getElementById('ctrlCard').classList.remove('hidden');
+      document.getElementById('actionCard').classList.remove('hidden');
+      document.getElementById('indDistCard').classList.remove('hidden');
       document.getElementById('resCard').classList.remove('hidden');
       document.getElementById('chartCard').classList.remove('hidden');
       recalcAsync();   // 收尾聚合计算，并隐藏遮罩
@@ -1000,6 +1021,23 @@ function buildIndFilter(){
   const allA=document.getElementById('indAll'), noneA=document.getElementById('indNone');
   if(allA) allA.onclick=()=>{ box.querySelectorAll('input').forEach(c=>c.checked=true); STATE.indFilter=null; recalcAsync(); buildIndFilter(); };
   if(noneA) noneA.onclick=()=>{ box.querySelectorAll('input').forEach(c=>c.checked=false); STATE.indFilter=new Set(); recalcAsync(); buildIndFilter(); };
+}
+function buildResIndSel(){
+  const sel=document.getElementById('resIndSel'); if(!sel) return;
+  const catFilter = STATE.cat==='整体'? null : STATE.cat;
+  const set=new Set();
+  for(const r of RAW){ if(catFilter && r.cat!==catFilter) continue; if(r.ind) set.add(r.ind); }
+  const inds=[...set].sort();
+  const curSingle = STATE.indFilter && STATE.indFilter.size===1 ? [...STATE.indFilter][0] : '';
+  let html='<option value="">全部细分</option>';
+  inds.forEach(ind=>{ html+='<option value="'+esc(ind)+'"'+(ind===curSingle?' selected':'')+'>'+esc(ind)+'</option>'; });
+  sel.innerHTML=html;
+  sel.onchange = ()=>{
+    const v=sel.value;
+    if(v){ STATE.indFilter=new Set([v]); } else { STATE.indFilter=null; }
+    buildIndFilter();
+    recalcAsync();
+  };
 }
 function renderIndPanel(){
   const el=document.getElementById('indPanel'); if(!el) return;
@@ -1117,7 +1155,7 @@ function closeMapModal(){ document.getElementById('mapModal').classList.add('hid
 
 /* 分布面板下钻：点击行 → 打开原始适应症构成弹窗；清除下钻 */
 document.getElementById('indPanel').addEventListener('click', e=>{
-  if(e.target && e.target.id==='indClear'){ STATE.indFilter=null; buildIndFilter(); recalcAsync(); return; }
+  if(e.target && e.target.id==='indClear'){ STATE.indFilter=null; buildIndFilter(); buildResIndSel(); recalcAsync(); return; }
   const tr=e.target.closest('tr.ind-row'); if(!tr) return;
   const ind=tr.getAttribute('data-ind'); if(!ind) return;
   openRawIndModal(ind);
@@ -1620,6 +1658,7 @@ function recalc(){
 
   const catFilter = STATE.cat==='整体'? null : STATE.cat;
   renderIndPanel();
+  buildResIndSel();
   const {start,end}=getWindow();
 
   // 左表：焦点品种
@@ -3481,7 +3520,7 @@ function setStatus(msg, isErr){
 }
 
 /* 分析维度面板 收起/展开（记忆状态） */
-function initCollapse(cardId, headId, toggleId, storageKey){
+function initCollapse(cardId, headId, toggleId, storageKey, defaultCollapsed){
   const card=document.getElementById(cardId);
   const head=document.getElementById(headId);
   const btn=document.getElementById(toggleId);
@@ -3493,10 +3532,14 @@ function initCollapse(cardId, headId, toggleId, storageKey){
   };
   head.addEventListener('click', (e)=>{ if(e.target!==btn) apply(!card.classList.contains('collapsed')); });
   btn.addEventListener('click', (e)=>{ e.stopPropagation(); apply(!card.classList.contains('collapsed')); });
-  apply(localStorage.getItem(storageKey)==='1');
+  let collapsed = localStorage.getItem(storageKey);
+  if(collapsed===null) collapsed = !!defaultCollapsed;
+  else collapsed = collapsed==='1';
+  apply(collapsed);
 }
-initCollapse('ctrlCard','ctrlHead','ctrlToggle','ctrlCollapsed');
-initCollapse('actionCard','actionHead','actionToggle','actionCollapsed');
+initCollapse('ctrlCard','ctrlHead','ctrlToggle','ctrlCollapsed', false);
+initCollapse('actionCard','actionHead','actionToggle','actionCollapsed', false);
+initCollapse('indDistCard','indDistHead','indDistToggle','indDistCollapsed', true);
 </script>
 
 <!-- 加载中遮罩 -->
