@@ -326,8 +326,8 @@
           </div>
 
           <div class="ctl">
-            <label>环比基准月（该月 vs 上一月）</label>
-            <select id="hbMonth"></select>
+            <label>环比基准月（固定为底表最新月 vs 上一月）</label>
+            <input type="text" id="hbMonth" readonly style="background:#f5f5f5;color:#666;cursor:not-allowed;">
           </div>
 
           <div class="ctl">
@@ -3374,14 +3374,12 @@ document.getElementById('timePreset').addEventListener('change', e=>{
   recalcAsync();
 });
 function populateHbMonths(){
-  const sel=document.getElementById('hbMonth');
+  // 固定为底表最新月，不允许手动切换
   const months=[...new Set(RAW.map(r=>r.d.getFullYear()+'-'+String(r.d.getMonth()+1).padStart(2,'0')))].sort();
-  sel.innerHTML='';
-  months.forEach(m=>{ const o=document.createElement('option'); o.value=m; o.textContent=m+(m===STATE.hbMonth?' (基准)':''); sel.appendChild(o); });
-  const def = (STATE.hbMonth && months.includes(STATE.hbMonth)) ? STATE.hbMonth : (months[months.length-1]||'');
-  sel.value=def; STATE.hbMonth=def;
+  STATE.hbMonth = months[months.length-1] || '';
+  const el=document.getElementById('hbMonth');
+  if(el) el.value = STATE.hbMonth;
 }
-document.getElementById('hbMonth').addEventListener('change', e=>{ STATE.hbMonth=e.target.value; renderHB(); renderCharts(); });
 document.getElementById('dateStart').addEventListener('change', e=>{ STATE.customStart=e.target.value; recalcAsync(); });
 document.getElementById('dateEnd').addEventListener('change', e=>{ STATE.customEnd=e.target.value; recalcAsync(); });
 document.getElementById('sortBy').addEventListener('change', recalcAsync);
