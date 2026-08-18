@@ -149,6 +149,19 @@
               border-left:3px solid var(--brand2);padding:7px 10px;border-radius:4px;}
   .sub-ctl{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap;}
   .sub-ctl label{font-size:12px;color:var(--muted);font-weight:600;}
+  /* 医院搜索框 */
+  .hosp-search{position:relative;min-width:280px;flex:1;max-width:480px;}
+  .hosp-search input{width:100%;padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px;background:#fff;color:var(--text,#222);box-sizing:border-box;}
+  .hosp-search input:focus{outline:none;border-color:#305496;box-shadow:0 0 0 2px rgba(48,84,150,0.15);}
+  .hosp-list{position:absolute;left:0;right:0;top:calc(100% + 2px);max-height:300px;overflow-y:auto;background:#fff;border:1px solid var(--line);border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,0.12);z-index:200;}
+  .hosp-list.hidden{display:none;}
+  .hosp-item{padding:7px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f2f5;display:flex;justify-content:space-between;align-items:center;gap:8px;}
+  .hosp-item:last-child{border-bottom:none;}
+  .hosp-item:hover,.hosp-item.active{background:#eef2f9;}
+  .hosp-item .hosp-pat{color:var(--muted);font-size:11px;flex-shrink:0;}
+  .hosp-item.cur{background:#e8f0ff;font-weight:600;}
+  .hosp-empty{padding:10px;color:var(--muted);font-size:12px;text-align:center;}
+  .hosp-item mark{background:#fff3a0;color:inherit;padding:0 1px;border-radius:2px;}
   .mini-table{width:100%;font-size:12px;margin-top:10px;overflow-x:auto;}
   .mini-table table{min-width:100%;border-collapse:collapse;}
   .mini-table th,.mini-table td{padding:5px 8px;border-bottom:1px solid var(--line);}
@@ -559,7 +572,10 @@
     <div class="chart-pane hidden" data-pane="hosp">
       <div class="sub-ctl">
         <label>锁定医院</label>
-        <select id="lockHospital"></select>
+        <div class="hosp-search">
+          <input type="text" id="hospSearch" placeholder="输入医院名搜索（如「华西」「市一」）" autocomplete="off">
+          <div class="hosp-list hidden" id="hospList"></div>
+        </div>
       </div>
       <div class="chart-box"><canvas id="chartHosp"></canvas></div>
       <div class="chart-note">口径：锁定单家医院，展示该医院在当前<b>适应症大类 + 时间窗口</b>内各品种的<b>去重患者数</b>（按 oneid+开票抬头）占比。同一患者若购多个品种会分别计入，故各品种占比之和可能 &gt; 100%。焦点品种以品牌色突出。</div>
@@ -2250,17 +2266,53 @@ function buildHospSelect(){
                   .sort((a,b)=> b.patients - a.patients);
     HOSP_LIST_SIG = sig;
   }
-  const sel = document.getElementById('lockHospital');
+  const input = document.getElementById('hospSearch');
   const prev = STATE.lockHospital;
-  sel.innerHTML = '';
-  HOSP_LIST.forEach(o=>{
-    const op = document.createElement('option');
-    op.value = o.hosp; op.textContent = `${o.hosp}（${o.patients.toLocaleString()} 人）`;
-    sel.appendChild(op);
-  });
-  STATE.lockHospital = (prev && HOSP_LIST.some(o=>o.hosp===prev))
-    ? prev : (HOSP_LIST.length? HOSP_LIST[0].hosp : '');
-  sel.value = STATE.lockHospital;
+  // 若原锁定医院已不在列表（口径变化），回退到 TOP1
+  if(!HOSP_LIST.some(o=>o.hosp === prev)){
+    STATE.lockHospital = HOSP_LIST.length? HOSP_LIST[0].hosp : '';
+  }
+  if(input){
+    input.value = STATE.lockHospital || '';
+  }
+  renderHospList('');   // 默认不筛选
+}
+
+/* 渲染医院搜索下拉（filter 为空显示全部） */
+function renderHospList(filter){
+  const list = document.getElementById('hospList');
+  if(!list) return;
+  const q = (filter||'').trim().toLowerCase();
+  const items = q
+    ? HOSP_LIST.filter(o => o.hosp.toLowerCase().includes(q))
+    : HOSP_LIST;
+  if(!items.length){
+    list.innerHTML = '<div class="hosp-empty">无匹配医院</div>';
+  } else {
+    // 截断显示：超过 200 条时只显示前 200
+    const MAX = 200;
+    const shown = items.slice(0, MAX);
+    const re = q ? new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi') : null;
+    list.innerHTML = shown.map(o=>{
+      const isCur = o.hosp === STATE.lockHospital;
+      const nameHtml = re ? esc(o.hosp).replace(re,'<mark>$1</mark>') : esc(o.hosp);
+      return `<div class="hosp-item${isCur?' cur':''}" data-hosp="${esc(o.hosp)}">`+
+               `<span>${nameHtml}</span>`+
+               `<span class="hosp-pat">${o.patients.toLocaleString()} 人</span>`+
+             `</div>`;
+    }).join('') + (items.length>MAX ? `<div class="hosp-empty">仅显示前 ${MAX} 条，共 ${items.length} 条</div>` : '');
+  }
+  list.classList.remove('hidden');
+}
+
+/* 选中医院 */
+function selectHosp(hosp){
+  STATE.lockHospital = hosp;
+  const input = document.getElementById('hospSearch');
+  if(input) input.value = hosp;
+  const list = document.getElementById('hospList');
+  if(list) list.classList.add('hidden');
+  drawHospChart();
 }
 function drawHospChart(){
   const hosp = STATE.lockHospital;
@@ -3123,7 +3175,7 @@ function renderShareDoc(share){
     <div class="ctl"><label>品种筛选</label><div id="mviewProdFilter" class="chart-prod-filter"></div></div>
     <div class="ctl"><label>适应症大类</label><select id="mviewCatSel"></select></div>
     <div class="ctl" id="trendCtl" style="display:none"><label>趋势指标</label><select id="trendSel"><option value="patients">患者数</option><option value="qty">销量(转化后数量)</option></select></div>
-    <div class="ctl" id="hospCtl" style="display:none"><label>锁定医院</label><select id="lockHospSel"></select></div>
+    <div class="ctl" id="hospCtl" style="display:none"><label>锁定医院</label><div class="hosp-search"><input type="text" id="hospSearchSp" placeholder="输入医院名搜索" autocomplete="off"><div class="hosp-list hidden" id="hospListSp"></div></div></div>
   </div>
   <div id="mview"></div>`:''}
   <div class="foot">本分享版由「同类品种分析工具」生成，仅含聚合与脱敏后的结果数据，未包含任何患者级原始记录（oneid / 开票抬头 / 逐条处方）。对方可在本页内切换适应症大类与焦点品种${(sec.multi&&(mv.share||mv.city||mv.trend||mv.profile||mv.hosp))?'、查看多维分析视角':''}，但底表原始数据不出本机、不可见、不可改脱敏。导出内容：${contentTxt.join(' + ')||'（无）'}。</div>
@@ -3356,15 +3408,58 @@ const SHARE = ${json};
     const hc=$('hospCtl'); if(hc) hc.style.display = (m==='hosp')?'':'none';
   }
   function buildHospSel(){
-    const hs=$('lockHospSel'); if(!hs) return;
-    hs.innerHTML='';
+    const input=$('hospSearchSp'); const list=$('hospListSp');
+    if(!input || !list) return;
     const hlist=(SHARE.data[st.cat]&&SHARE.data[st.cat]._charts.hospList)||[];
     let keep=st.lockHosp;
     if(!hlist.some(o=>o.hosp===keep)) keep=hlist.length?hlist[0].hosp:'';
     st.lockHosp=keep;
-    hlist.forEach(o=>{ const op=document.createElement('option'); op.value=o.hosp; op.textContent=o.hosp+'（'+num(o.patients)+' 人）'; hs.appendChild(op); });
-    hs.value=keep;
-    hs.onchange=e=>{ st.lockHosp=e.target.value; if(st.mview==='hosp') renderHosp(); };
+    input.value = keep;
+    // 渲染下拉
+    const render = (q)=>{
+      const s = (q||'').trim().toLowerCase();
+      const items = s ? hlist.filter(o=>o.hosp.toLowerCase().includes(s)) : hlist;
+      if(!items.length){
+        list.innerHTML = '<div class="hosp-empty">无匹配医院</div>';
+      } else {
+        const re = s ? new RegExp('('+s.replace(/[.*+?^\${}()|[\]\\]/g,'\\$&')+')','gi') : null;
+        let html = '';
+        const max2 = Math.min(items.length, 200);
+        for(let i=0; i<max2; i++){
+          const o = items[i];
+          const isCur = o.hosp === st.lockHosp;
+          let nameHtml = esc(o.hosp);
+          if(re) nameHtml = nameHtml.replace(re,'<mark>$1</mark>');
+          html += '<div class="hosp-item'+(isCur?' cur':'')+'" data-hosp="'+esc(o.hosp)+'">'
+               +    '<span>'+nameHtml+'</span>'
+               +    '<span class="hosp-pat">'+num(o.patients)+' 人</span>'
+               +  '</div>';
+        }
+        if(items.length>200) html += '<div class="hosp-empty">仅显示前 200 条</div>';
+        list.innerHTML = html;
+      }
+      list.classList.remove('hidden');
+    };
+    const select = (h)=>{ st.lockHosp=h; input.value=h; list.classList.add('hidden'); if(st.mview==='hosp') renderHosp(); };
+    input.oninput = e=> render(e.target.value);
+    input.onfocus = ()=> render(input.value);
+    list.onmousedown = e=>{ const it=e.target.closest('.hosp-item'); if(!it) return; e.preventDefault(); const h=it.getAttribute('data-hosp'); if(h) select(h); };
+    input.onkeydown = e=>{
+      if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+        e.preventDefault();
+        const its=list.querySelectorAll('.hosp-item'); if(!its.length) return;
+        const cur=list.querySelector('.hosp-item.active'); let idx=-1;
+        if(cur) idx=[...its].indexOf(cur);
+        if(cur) cur.classList.remove('active');
+        idx = e.key==='ArrowDown' ? Math.min(its.length-1, idx+1) : Math.max(0, idx-1);
+        its[idx].classList.add('active'); its[idx].scrollIntoView({block:'nearest'});
+      } else if(e.key==='Enter'){
+        e.preventDefault();
+        const cur=list.querySelector('.hosp-item.active')||list.querySelector('.hosp-item');
+        if(cur){ const h=cur.getAttribute('data-hosp'); if(h) select(h); }
+      } else if(e.key==='Escape'){ list.classList.add('hidden'); }
+    };
+    document.addEventListener('click', e=>{ if(!input.parentElement.contains(e.target)) list.classList.add('hidden'); });
   }
   function buildMviewProdFilter(){
     const container = $('mviewProdFilter');
@@ -3717,11 +3812,58 @@ document.getElementById('trendMetric').addEventListener('change', e=>{
   STATE.trendMetric = e.target.value;
   if(STATE.chartTab==='trend') renderCharts();
 });
-/* 医院份额：锁定医院切换 */
-document.getElementById('lockHospital').addEventListener('change', e=>{
-  STATE.lockHospital = e.target.value;
-  drawHospChart();
-});
+/* 医院份额：搜索框交互 */
+(function initHospSearch(){
+  const input = document.getElementById('hospSearch');
+  const list  = document.getElementById('hospList');
+  if(!input || !list) return;
+  // 输入时筛选
+  input.addEventListener('input', e=>{
+    renderHospList(e.target.value);
+  });
+  // 聚焦时展开（若列表为空则不展开）
+  input.addEventListener('focus', ()=>{
+    renderHospList(input.value);
+  });
+  // 点击下拉项
+  list.addEventListener('mousedown', e=>{   // 用 mousedown 避免 input blur 先关闭
+    const item = e.target.closest('.hosp-item');
+    if(!item) return;
+    e.preventDefault();
+    const hosp = item.getAttribute('data-hosp');
+    if(hosp) selectHosp(hosp);
+  });
+  // 外部点击关闭
+  document.addEventListener('click', e=>{
+    if(!input.parentElement.contains(e.target)){
+      list.classList.add('hidden');
+    }
+  });
+  // 键盘上下/回车
+  input.addEventListener('keydown', e=>{
+    if(e.key==='ArrowDown' || e.key==='ArrowUp'){
+      e.preventDefault();
+      const items = list.querySelectorAll('.hosp-item');
+      if(!items.length) return;
+      const cur = list.querySelector('.hosp-item.active');
+      let idx = -1;
+      if(cur) idx = [...items].indexOf(cur);
+      if(cur) cur.classList.remove('active');
+      idx = e.key==='ArrowDown' ? Math.min(items.length-1, idx+1) : Math.max(0, idx-1);
+      items[idx].classList.add('active');
+      items[idx].scrollIntoView({block:'nearest'});
+    } else if(e.key==='Enter'){
+      e.preventDefault();
+      const cur = list.querySelector('.hosp-item.active') || list.querySelector('.hosp-item');
+      if(cur){
+        const hosp = cur.getAttribute('data-hosp');
+        if(hosp) selectHosp(hosp);
+      }
+    } else if(e.key==='Escape'){
+      list.classList.add('hidden');
+    }
+  });
+})();
 
 function syncCompList(){
   document.querySelectorAll('#compList input').forEach(cb=>{ cb.checked = STATE.competitors.has(cb.value); });
