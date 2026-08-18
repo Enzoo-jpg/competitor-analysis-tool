@@ -2425,7 +2425,7 @@ function drawHospChart(){
   // 明细表：口径固定为 STATE.hbMonth（底表最新月）vs 上一月，与⑥分析结果保持一致
   const currTotPat = [...currPat.values()].reduce((a,s)=>a+s.size,0)||1;
   const prevTotPat = [...prevPat.values()].reduce((a,s)=>a+s.size,0)||1;
-  const hbItems = [...currPat.keys(), ...prevPat.keys()].map(prod=>{
+  const hbItems = [...new Set([...currPat.keys(), ...prevPat.keys()])].map(prod=>{
     const cp = (currPat.get(prod)||new Set()).size;
     const cq = currQty.get(prod)||0;
     return { prod, patients: cp, qty: cq, isFocus: prod===STATE.focus };
