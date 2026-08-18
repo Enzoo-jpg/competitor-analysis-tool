@@ -1673,6 +1673,11 @@ function prodLabel(name){
   if(name === STATE.focus) return '本品';
   return PROD_LETTER[name] || name;
 }
+/* Y轴轴标签截断：超过20字用…省略，tooltip 显示全名 */
+function truncLabel(name){
+  const s = String(name||'');
+  return s.length > 20 ? s.slice(0,20) + '…' : s;
+}
 
 /* ============ 渲染 ============ */
 function renderTable(side, rows, title, sub, mode){
@@ -1997,19 +2002,25 @@ function renderShare(){
   const data = items.map(x=>x.patients);
   const colors = items.map(x=> x.isFocus? '#305496' : '#b9c4dd');
   destroyChart('share');
+  // 动态高度：每个 bar 约 22px + 标题/边距 80，低于 17 条按 360
+  const shareBox = document.getElementById('chartShare').parentElement;
+  shareBox.style.height = Math.max(360, labels.length * 22 + 100) + 'px';
   CHARTS.share = new Chart(document.getElementById('chartShare'), {
     type:'bar',
-    data:{ labels, datasets:[{ label:'去重患者数', data, backgroundColor:colors, borderRadius:4 }] },
+    data:{ labels: labels.map(truncLabel), datasets:[{ label:'去重患者数', data, backgroundColor:colors, borderRadius:4 }] },
     options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{display:false},
-        tooltip:{ callbacks:{ label:(c)=>{
+        tooltip:{ callbacks:{
+          title:(c)=> labels[c[0].dataIndex],
+          label:(c)=>{
           const it=items[c.dataIndex];
           const tot=data.reduce((a,b)=>a+b,0);
           const pct = tot? (it.patients/tot*100).toFixed(1) : 0;
           return `患者数 ${it.patients.toLocaleString()} (${pct}%) · 销量 ${it.qty.toLocaleString()}`;
         }}},
         title:{ display:true, text:'各品种去重患者数（当前口径）' } },
-      scales:{ x:{ title:{display:true,text:'去重患者数'} } } }
+      scales:{ x:{ title:{display:true,text:'去重患者数'} },
+               y:{ ticks:{ autoSkip:false, font:{size:11} } } } }
   });
   // 明细表（含环比列：患者数、患者占比、销量均显示环比）
   // 口径固定为 STATE.hbMonth（底表最新月）vs 上一月，与⑥分析结果环比卡片保持一致
@@ -2409,19 +2420,25 @@ function drawHospChart(){
   const data = items.map(x=>x.patients);
   const colors = items.map(x=> x.isFocus? '#305496' : '#b9c4dd');
   destroyChart('hosp');
+  // 动态高度：每个 bar 约 22px + 标题/边距 100
+  const hospBox = document.getElementById('chartHosp').parentElement;
+  hospBox.style.height = Math.max(360, labels.length * 22 + 100) + 'px';
   CHARTS.hosp = new Chart(document.getElementById('chartHosp'), {
     type:'bar',
-    data:{ labels, datasets:[{ label:'去重患者数', data, backgroundColor:colors, borderRadius:4 }] },
+    data:{ labels: labels.map(truncLabel), datasets:[{ label:'去重患者数', data, backgroundColor:colors, borderRadius:4 }] },
     options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{display:false},
-        tooltip:{ callbacks:{ label:(c)=>{
+        tooltip:{ callbacks:{
+          title:(c)=> labels[c[0].dataIndex],
+          label:(c)=>{
           const it=items[c.dataIndex];
           const tot=data.reduce((a,b)=>a+b,0);
           const pct = tot? (it.patients/tot*100).toFixed(1) : 0;
           return `患者数 ${it.patients.toLocaleString()} (${pct}%) · 销量 ${it.qty.toLocaleString()}`;
         }}},
         title:{ display:true, text:`${hosp} · 各品种去重患者数（顶部时间窗口 ${fmtD(w.start)} ~ ${fmtD(w.end)}）` } },
-      scales:{ x:{ title:{display:true,text:'去重患者数'} } } }
+      scales:{ x:{ title:{display:true,text:'去重患者数'} },
+               y:{ ticks:{ autoSkip:false, font:{size:11} } } } }
   });
   // 明细表：口径固定为 STATE.hbMonth（底表最新月）vs 上一月，与⑥分析结果保持一致
   const hbWinTxt = hbM && prevYm ? `${prevYm}（上月）vs ${hbM}（底表最新月）` : '（无环比数据）';
