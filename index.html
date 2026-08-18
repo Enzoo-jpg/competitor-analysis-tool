@@ -162,6 +162,7 @@
   .hosp-item.cur{background:#e8f0ff;font-weight:600;}
   .hosp-empty{padding:10px;color:var(--muted);font-size:12px;text-align:center;}
   .hosp-item mark{background:#fff3a0;color:inherit;padding:0 1px;border-radius:2px;}
+  .hosp-hb-note{font-size:12px;color:#8a6d3b;background:#fff8e1;border:1px solid #ffe1a8;border-radius:6px;padding:6px 10px;margin:10px 0 6px;}
   .mini-table{width:100%;font-size:12px;margin-top:10px;overflow-x:auto;}
   .mini-table table{min-width:100%;border-collapse:collapse;}
   .mini-table th,.mini-table td{padding:5px 8px;border-bottom:1px solid var(--line);}
@@ -2419,10 +2420,11 @@ function drawHospChart(){
           const pct = tot? (it.patients/tot*100).toFixed(1) : 0;
           return `患者数 ${it.patients.toLocaleString()} (${pct}%) · 销量 ${it.qty.toLocaleString()}`;
         }}},
-        title:{ display:true, text:`${hosp} · 各品种去重患者数（当前口径）` } },
+        title:{ display:true, text:`${hosp} · 各品种去重患者数（顶部时间窗口 ${fmtD(w.start)} ~ ${fmtD(w.end)}）` } },
       scales:{ x:{ title:{display:true,text:'去重患者数'} } } }
   });
   // 明细表：口径固定为 STATE.hbMonth（底表最新月）vs 上一月，与⑥分析结果保持一致
+  const hbWinTxt = hbM && prevYm ? `${prevYm}（上月）vs ${hbM}（底表最新月）` : '（无环比数据）';
   const currTotPat = [...currPat.values()].reduce((a,s)=>a+s.size,0)||1;
   const prevTotPat = [...prevPat.values()].reduce((a,s)=>a+s.size,0)||1;
   const hbItems = [...new Set([...currPat.keys(), ...prevPat.keys()])].map(prod=>{
@@ -2430,7 +2432,8 @@ function drawHospChart(){
     const cq = currQty.get(prod)||0;
     return { prod, patients: cp, qty: cq, isFocus: prod===STATE.focus };
   }).filter(x=>x.patients>0 || x.qty>0).sort((a,b)=>b.patients-a.patients);
-  let html = '<table><thead><tr><th>品种</th><th class="num">患者数</th><th class="num">患者数环比</th><th class="num">患者占比</th><th class="num">患者占比环比</th><th class="num">销量(转化后数量)</th><th class="num">销量环比</th></tr></thead><tbody>';
+  let html = `<div class="hosp-hb-note">明细表口径：${hbWinTxt}（固定为底表最新月，不随顶部时间窗口变化）</div>`+
+             '<table><thead><tr><th>品种</th><th class="num">患者数</th><th class="num">患者数环比</th><th class="num">患者占比</th><th class="num">患者占比环比</th><th class="num">销量(转化后数量)</th><th class="num">销量环比</th></tr></thead><tbody>';
   hbItems.forEach(it=>{
     const cls = it.isFocus? 'class="c-focus"':'';
     const cp = it.patients, pp = (prevPat.get(it.prod)||new Set()).size;
