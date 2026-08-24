@@ -3002,7 +3002,8 @@ function buildShareData(opts){
   const catOrder = ['整体','皮科','消化','关节','其他'];
   const allCats = catOrder.filter(c=> byCat[c] && byCat[c].length);
   // 医生/医院明细专用原始数据：回滚12月窗口（基准月=最新月），仅用于 DOT 列；患者人数另用窗口内数据
-  const inDot = RAW.filter(r=>{ const w=dotWindow(); return r.d>=w.start && r.d<=w.end; }).filter(r => !STATE.indFilter || STATE.indFilter.has(r.ind));
+  const {start:dotS, end:dotE} = dotWindow();   // 只算一次，避免 filter 回调里 O(N²) 全量扫描
+  const inDot = RAW.filter(r=> r.d>=dotS && r.d<=dotE).filter(r => !STATE.indFilter || STATE.indFilter.has(r.ind));
   const byCatDot = {整体: inDot};
   for(const r of inDot){ const c=r.cat||'其他'; if(c==='整体') continue; (byCatDot[c] || (byCatDot[c]=[])).push(r); }
   const allProducts = PRODUCTS.slice();
