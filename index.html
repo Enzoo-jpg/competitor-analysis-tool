@@ -3446,11 +3446,7 @@ const SHARE = ${json};
       const curP = hb ? hb.curP : it.patients;
       return Object.assign(it, { _curP: curP });
     });
-    items.sort((a,b)=>{
-      if(a.prod===st.focus) return -1;
-      if(b.prod===st.focus) return 1;
-      return b._curP - a._curP;
-    });
+    items.sort((a,b)=> b._curP - a._curP);
     const tot = items.reduce((a,b)=>a+b._curP,0)||1;
     const max = Math.max(...items.map(x=>x._curP),0)||1;
     let rows = items.map(it=>{
