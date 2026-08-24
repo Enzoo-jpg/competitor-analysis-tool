@@ -1015,7 +1015,7 @@ function loadRows(rows){
       const sexRaw = (r[COL.sex]!=null)?String(r[COL.sex]).trim():'';
       if(convQty==null || isNaN(convQty)) continue;
       const amtRaw = COL.amt!=null ? parseFloat(r[COL.amt]) : NaN;
-      RAW.push({d, prod, cat, convQty, oneid, invoice, hosp, dept, doctor, ind: normInd, rawInd: indRaw, city, age:ageRaw, sex:sexRaw, amt: isNaN(amtRaw)?0:amtRaw});
+      RAW.push({d, prod, cat, convQty, oneid, invoice, hosp, dept, doctor, ind: normInd, rawInd: indRaw, city, age:ageRaw, sex:sexRaw, amt: isNaN(amtRaw)?0:amtRaw, pk: oneid+'|'+invoice});
       seenProd.add(prod);
       if(dmin==null||d<dmin) dmin=d;
       if(dmax==null||d>dmax) dmax=d;
@@ -1120,7 +1120,7 @@ function renderIndPanel(){
     if(prods && !prods.has(r.prod)) continue;
     if(catFilter && r.cat!==catFilter) continue;
     let o=cnt.get(r.ind); if(!o){o={p:new Set(),q:0}; cnt.set(r.ind,o);}
-    o.p.add(r.oneid+'|'+r.invoice); o.q+=r.convQty;
+    o.p.add(r.pk); o.q+=r.convQty;
   }
   const rows=[...cnt.entries()].map(([k,o])=>({ind:k,p:o.p.size,q:o.q}));
   rows.sort((a,b)=>b.p-a.p);
@@ -1244,7 +1244,7 @@ function buildRawIndModal(ind){
     if(r.ind!==ind) continue;
     const raw=(r.rawInd!=null && r.rawInd!=='')? r.rawInd : '（空适应症）';
     let o=map.get(raw); if(!o){ o={p:new Set(),q:0,curInd:r.ind}; map.set(raw,o); }
-    o.p.add(r.oneid+'|'+r.invoice); o.q+=r.convQty;
+    o.p.add(r.pk); o.q+=r.convQty;
   }
   const rows=[...map.entries()].sort((a,b)=>b[1].p.size-a[1].p.size);
   const ncs=normIndCatMap();
@@ -1417,7 +1417,7 @@ function renderProductPicker(){
     if(r.d<start||r.d>end) continue;
     if(catFilter && r.cat!==catFilter) continue;
     const p=r.prod;
-    let s=patMap.get(p); if(!s){s=new Set();patMap.set(p,s);} s.add(r.oneid+'|'+r.invoice);
+    let s=patMap.get(p); if(!s){s=new Set();patMap.set(p,s);} s.add(r.pk);
     qtyMap.set(p,(qtyMap.get(p)||0)+r.convQty);
     let h=hospMap.get(p); if(!h){h=new Set();hospMap.set(p,h);} h.add(r.hosp);
   }
@@ -1464,7 +1464,7 @@ function aggregate(rows){
     const key = r.hosp+'§'+r.dept+'§'+r.doctor;
     let g = groups.get(key);
     if(!g){ g={hosp:r.hosp, dept:r.dept, doctor:r.doctor, patients:new Set(), qty:0}; groups.set(key,g); }
-    g.patients.add(r.oneid+'|'+r.invoice);
+    g.patients.add(r.pk);
     g.qty += r.convQty;
   }
   const out=[];
@@ -1482,7 +1482,7 @@ function aggregateHosp(rows){
     const key = r.hosp;
     let g = groups.get(key);
     if(!g){ g={hosp:r.hosp, patients:new Set(), qty:0, docs:new Set()}; groups.set(key,g); }
-    g.patients.add(r.oneid+'|'+r.invoice);
+    g.patients.add(r.pk);
     g.qty += r.convQty;
     // 医生去重键 = 仅姓名：同一医院内同名医生（即使跨科室如皮肤科/关节科同一人）只计 1 个
     if(r.doctor) g.docs.add(r.doctor);
@@ -1539,7 +1539,7 @@ function aggregateMixed(winRows, dotRows, mode){
     const k = keyOf(r);
     let g = win.get(k);
     if(!g){ g = {hosp:r.hosp, dept:r.dept, doctor:r.doctor, patients:new Set(), docs:new Set()}; win.set(k,g); }
-    g.patients.add(r.oneid+'|'+r.invoice);
+    g.patients.add(r.pk);
     if(mode==='hospital' && r.doctor) g.docs.add(r.doctor);
   }
   const dotm = new Map();
@@ -1548,7 +1548,50 @@ function aggregateMixed(winRows, dotRows, mode){
     let g = dotm.get(k);
     if(!g){ g = {qty:0, patients:new Set()}; dotm.set(k,g); }
     g.qty += r.convQty;
-    g.patients.add(r.oneid+'|'+r.invoice);
+    g.patients.add(r.pk);
+  }
+  const out=[];
+  for(const [k,g] of win){
+    const n = g.patients.size;
+    const d = dotm.get(k);
+    const dot = (d && d.patients.size) ? d.qty/d.patients.size : 0;
+    out.push({hosp:g.hosp, dept:g.dept, doctor:g.doctor, patients:n, dot, docCount:g.docs.size});
+  }
+  return out;
+}
+
+// 分享版导出专用：单次遍历完成「窗口患者聚合 + 回滚12月 DOT 聚合」，可跳过指定品种（right 场景）
+// 与 aggregateMixed 输出结构一致；当 winRows===dotRows（窗口=回滚12月）时只遍历一次。
+function aggregateMixedFast(winRows, dotRows, mode, skipProd){
+  const keyOf = mode==='hospital'
+    ? (r)=> r.hosp
+    : (r)=> r.hosp+'§'+r.dept+'§'+r.doctor;
+  const win = new Map();
+  const dotm = new Map();
+  const same = (winRows === dotRows);
+  // 遍历窗口行（同时填 dotm 当 same）
+  for(const r of winRows){
+    if(skipProd && r.prod===skipProd) continue;
+    const k = keyOf(r);
+    let g = win.get(k);
+    if(!g){ g = {hosp:r.hosp, dept:r.dept, doctor:r.doctor, patients:new Set(), docs:new Set()}; win.set(k,g); }
+    g.patients.add(r.pk);
+    if(mode==='hospital' && r.doctor) g.docs.add(r.doctor);
+    if(same){
+      let dg = dotm.get(k);
+      if(!dg){ dg = {qty:0, patients:new Set()}; dotm.set(k,dg); }
+      dg.qty += r.convQty; dg.patients.add(r.pk);
+    }
+  }
+  // 回滚12月行（若与窗口不同，单独填 dotm）
+  if(!same){
+    for(const r of dotRows){
+      if(skipProd && r.prod===skipProd) continue;
+      const k = keyOf(r);
+      let dg = dotm.get(k);
+      if(!dg){ dg = {qty:0, patients:new Set()}; dotm.set(k,dg); }
+      dg.qty += r.convQty; dg.patients.add(r.pk);
+    }
   }
   const out=[];
   for(const [k,g] of win){
@@ -1770,7 +1813,7 @@ function renderHB(){
     const ym=r.d.getFullYear()+'-'+String(r.d.getMonth()+1).padStart(2,'0');
     let m=byProd.get(r.prod); if(!m){m=new Map();byProd.set(r.prod,m);}
     let o=m.get(ym); if(!o){o={p:new Set(),q:0,a:0};m.set(ym,o);}
-    o.p.add(r.oneid+'|'+r.invoice); o.q+=r.convQty; o.a+=r.amt; }
+    o.p.add(r.pk); o.q+=r.convQty; o.a+=r.amt; }
   function agg(prods, month){ let p=new Set(),q=0,a=0;
     for(const pr of prods){ const m=byProd.get(pr); if(!m) continue; const o=m.get(month); if(!o) continue; o.p.forEach(x=>p.add(x)); q+=o.q; a+=o.a; }
     return {p:p.size,q,a}; }
@@ -2027,7 +2070,7 @@ function renderShare(){
   const hbM = getHbMonth();
   const prevYm = hbM? hbPrevYm(hbM):'';
   const currPat=new Map(), prevPat=new Map(), currQty=new Map(), prevQty=new Map();
-  if(hbM){ for(const r of rows){ const ym=r.d.getFullYear()+'-'+String(r.d.getMonth()+1).padStart(2,'0'); if(ym!==hbM && ym!==prevYm) continue; const pk=r.oneid+'|'+r.invoice; const isCur=ym===hbM; const pMap=isCur?currPat:prevPat, qMap=isCur?currQty:prevQty; let s=pMap.get(r.prod); if(!s){s=new Set();pMap.set(r.prod,s);} s.add(pk); qMap.set(r.prod,(qMap.get(r.prod)||0)+r.convQty); } }
+  if(hbM){ for(const r of rows){ const ym=r.d.getFullYear()+'-'+String(r.d.getMonth()+1).padStart(2,'0'); if(ym!==hbM && ym!==prevYm) continue; const pk=r.pk; const isCur=ym===hbM; const pMap=isCur?currPat:prevPat, qMap=isCur?currQty:prevQty; let s=pMap.get(r.prod); if(!s){s=new Set();pMap.set(r.prod,s);} s.add(pk); qMap.set(r.prod,(qMap.get(r.prod)||0)+r.convQty); } }
   const currTot = [...currPat.values()].reduce((a,s)=>a+s.size,0)||1;
   const prevTot = [...prevPat.values()].reduce((a,s)=>a+s.size,0)||1;
   // 表格数据统一用 hbM 月份重排
@@ -2099,7 +2142,7 @@ function renderCity(){
       const ym=r.d.getFullYear()+'-'+String(r.d.getMonth()+1).padStart(2,'0');
       if(ym!==hbM && ym!==prevYm) continue;
       const target=ym===hbM?curMap:prevMap;
-      let s=target.get(r.city); if(!s){s=new Set();target.set(r.city,s);} s.add(r.oneid+'|'+r.invoice);
+      let s=target.get(r.city); if(!s){s=new Set();target.set(r.city,s);} s.add(r.pk);
     }
     return {cur:curMap, prev:prevMap};
   }
@@ -2195,7 +2238,7 @@ function monthDedup(rows, months){
   for(const mo of months) m.set(mo, new Set());
   for(const r of rows){
     const ym = r.d.getFullYear()+'-'+String(r.d.getMonth()+1).padStart(2,'0');
-    if(m.has(ym)) m.get(ym).add(r.oneid+'|'+r.invoice);
+    if(m.has(ym)) m.get(ym).add(r.pk);
   }
   return months.map(mo=> m.get(mo).size);
 }
@@ -2215,7 +2258,7 @@ function renderProfile(){
     for(const r of scope){
       const ym = r.d.getFullYear()+'-'+String(r.d.getMonth()+1).padStart(2,'0');
       if(monthsSet && !monthsSet.has(ym)) continue;
-      const pk = r.oneid+'|'+r.invoice;
+      const pk = r.pk;
       const g = (r.prod===STATE.focus)? 'focus' : 'comp';
       let rec = pat.get(pk);
       if(!rec){
@@ -2404,7 +2447,7 @@ function drawHospChart(){
       if(ym!==hbM && ym!==prevYm) continue;
       const isCur = ym===hbM;
       const pMap=isCur?currPat:prevPat, qMap=isCur?currQty:prevQty;
-      let s=pMap.get(r.prod); if(!s){s=new Set();pMap.set(r.prod,s);} s.add(r.oneid+'|'+r.invoice);
+      let s=pMap.get(r.prod); if(!s){s=new Set();pMap.set(r.prod,s);} s.add(r.pk);
       qMap.set(r.prod,(qMap.get(r.prod)||0)+r.convQty);
     }
   }
@@ -2906,13 +2949,13 @@ function buildShareHTML(opts){
 /* ============ 分享版多维视角：纯计算（输出纯数值，绝不含 oneid / 开票抬头 / 原始处方行） ============ */
 function calcShareAll(catRows){
   const pat=new Map(), qty=new Map();
-  for(const r of catRows){ let s=pat.get(r.prod); if(!s){s=new Set();pat.set(r.prod,s);} s.add(r.oneid+'|'+r.invoice); qty.set(r.prod,(qty.get(r.prod)||0)+r.convQty); }
+  for(const r of catRows){ let s=pat.get(r.prod); if(!s){s=new Set();pat.set(r.prod,s);} s.add(r.pk); qty.set(r.prod,(qty.get(r.prod)||0)+r.convQty); }
   return [...pat.entries()].map(([prod,s])=>({prod,patients:s.size,qty:qty.get(prod)||0})).filter(x=>x.patients>0||x.qty>0).sort((a,b)=>b.patients-a.patients);
 }
 function calcCity(focusRows, compRows){
   const fM=new Map(), cM=new Map();
-  for(const r of focusRows){ let s=fM.get(r.city); if(!s){s=new Set();fM.set(r.city,s);} s.add(r.oneid+'|'+r.invoice); }
-  for(const r of compRows){ let s=cM.get(r.city); if(!s){s=new Set();cM.set(r.city,s);} s.add(r.oneid+'|'+r.invoice); }
+  for(const r of focusRows){ let s=fM.get(r.city); if(!s){s=new Set();fM.set(r.city,s);} s.add(r.pk); }
+  for(const r of compRows){ let s=cM.get(r.city); if(!s){s=new Set();cM.set(r.city,s);} s.add(r.pk); }
   const set=new Set([...fM.keys(),...cM.keys()]);
   return [...set].map(c=>({city:c, f:fM.get(c)?fM.get(c).size:0, c:cM.get(c)?cM.get(c).size:0})).filter(x=>x.f>0||x.c>0).sort((a,b)=>(b.f+b.c)-(a.f+a.c)).slice(0,15);
 }
@@ -2928,7 +2971,7 @@ function calcTrend(focusRows, compRows){
 function calcProfile(catRows, focus){
   const pat=new Map();
   for(const r of catRows){
-    const pk=r.oneid+'|'+r.invoice; const g=(r.prod===focus)?'focus':'comp';
+    const pk=r.pk; const g=(r.prod===focus)?'focus':'comp';
     let rec=pat.get(pk);
     if(!rec){ rec={group:g,age:r.age,sex:r.sex}; pat.set(pk,rec); }
     else { if(rec.group!=='focus'&&g==='focus')rec.group='focus'; if(!rec.age&&r.age)rec.age=r.age; if(!rec.sex&&r.sex)rec.sex=r.sex; }
@@ -2956,12 +2999,12 @@ function calcProfile(catRows, focus){
 }
 function calcHospList(catRows){
   const cnt=new Map();
-  for(const r of catRows){ let s=cnt.get(r.hosp); if(!s){s=new Set();cnt.set(r.hosp,s);} s.add(r.oneid+'|'+r.invoice); }
+  for(const r of catRows){ let s=cnt.get(r.hosp); if(!s){s=new Set();cnt.set(r.hosp,s);} s.add(r.pk); }
   return [...cnt.entries()].map(([h,s])=>({hosp:h,patients:s.size})).sort((a,b)=>b.patients-a.patients);
 }
 function calcHospShare(catRows, hosp){
   const pat=new Map(), qty=new Map();
-  for(const r of catRows){ if(r.hosp!==hosp)continue; let s=pat.get(r.prod); if(!s){s=new Set();pat.set(r.prod,s);} s.add(r.oneid+'|'+r.invoice); qty.set(r.prod,(qty.get(r.prod)||0)+r.convQty); }
+  for(const r of catRows){ if(r.hosp!==hosp)continue; let s=pat.get(r.prod); if(!s){s=new Set();pat.set(r.prod,s);} s.add(r.pk); qty.set(r.prod,(qty.get(r.prod)||0)+r.convQty); }
   return [...pat.entries()].map(([prod,s])=>({prod,patients:s.size,qty:qty.get(prod)||0})).sort((a,b)=>b.patients-a.patients);
 }
 // 单次遍历 O(N) 同时算出「医院列表」与各「医院×品种」份额，避免对每家医院全表扫描（O(H*N)）
@@ -2971,7 +3014,7 @@ function calcHospShareAll(catRows){
   for(const r of catRows){
     let h = perHosp.get(r.hosp);
     if(!h){ h = { patients:new Set(), prodPat:new Map(), prodQty:new Map() }; perHosp.set(r.hosp, h); }
-    const key = r.oneid+'|'+r.invoice;
+    const key = r.pk;
     h.patients.add(key);
     let pp = h.prodPat.get(r.prod);
     if(!pp){ pp=new Set(); h.prodPat.set(r.prod, pp); }
@@ -3026,6 +3069,7 @@ function buildShareData(opts){
   for(const cat of selCats){
     data[cat] = { _charts:{} };
     const catRows = byCat[cat];
+    const catRowsDot = byCatDot[cat] || [];   // 回滚12月窗口行（DOT 专用），与 catRows 可能不同
     // ---- per-cat 多维（仅在需要多维且对应子项勾选时计算）----
     if(sec.multi){
       data[cat]._charts.share = mv.share ? calcShareAll(catRows) : [];
@@ -3040,12 +3084,20 @@ function buildShareData(opts){
       // 逐品种明细：供分享版"品种筛选"实时重聚合 时间趋势/城市/患者画像（导出后无需重传底表）
       if(mv.trend || mv.city || mv.profile){
         const BUCKETS=[['<18',x=>x<18],['18-29',x=>x>=18&&x<30],['30-39',x=>x<40],['40-49',x=>x<50],['50-59',x=>x<60],['60-69',x=>x<70],['70+',x=>x>=70]];
+        // 按品种预分组：一次遍历，供 trend/city/profile 复用（避免每品种全表扫）
+        const byProdRows = new Map();
+        for(const r of catRows){
+          let arr = byProdRows.get(r.prod);
+          if(!arr){ arr=[]; byProdRows.set(r.prod, arr); }
+          arr.push(r);
+        }
         const msetAll=new Set();
         const perProdMonthly={};
         if(mv.trend){
           for(const p of selProducts){
             const accQ=new Map(); const pm=new Map();
-            for(const r of catRows){ if(r.prod!==p) continue; const ym=r.d.getFullYear()+'-'+String(r.d.getMonth()+1).padStart(2,'0'); msetAll.add(ym); accQ.set(ym,(accQ.get(ym)||0)+r.convQty); if(!pm.has(ym)) pm.set(ym,new Set()); pm.get(ym).add(r.oneid+'|'+r.invoice); }
+            const pRows = byProdRows.get(p) || [];
+            for(const r of pRows){ const ym=r.d.getFullYear()+'-'+String(r.d.getMonth()+1).padStart(2,'0'); msetAll.add(ym); accQ.set(ym,(accQ.get(ym)||0)+r.convQty); if(!pm.has(ym)) pm.set(ym,new Set()); pm.get(ym).add(r.pk); }
             perProdMonthly[p]={pm,accQ};
           }
           const months=[...msetAll].sort();
@@ -3057,7 +3109,8 @@ function buildShareData(opts){
           const cityByProd={};
           for(const p of selProducts){
             const fm=new Map();
-            for(const r of catRows){ if(r.prod!==p) continue; let s=fm.get(r.city); if(!s){s=new Set();fm.set(r.city,s);} s.add(r.oneid+'|'+r.invoice); }
+            const pRows = byProdRows.get(p) || [];
+            for(const r of pRows){ let s=fm.get(r.city); if(!s){s=new Set();fm.set(r.city,s);} s.add(r.pk); }
             const o={}; fm.forEach((s,c)=>o[c]=s.size); cityByProd[p]=o;
           }
           data[cat]._charts.cityByProd=cityByProd;
@@ -3066,7 +3119,8 @@ function buildShareData(opts){
           const profileByProd={};
           for(const p of selProducts){
             const pat=new Map();
-            for(const r of catRows){ if(r.prod!==p) continue; const pk=r.oneid+'|'+r.invoice; if(!pat.has(pk)) pat.set(pk,{age:r.age,sex:r.sex}); }
+            const pRows = byProdRows.get(p) || [];
+            for(const r of pRows){ const pk=r.pk; if(!pat.has(pk)) pat.set(pk,{age:r.age,sex:r.sex}); }
             const aAge=new Array(BUCKETS.length).fill(0), aSex={男:0,女:0,未知:0};
             for(const rec of pat.values()){ let v=NaN; if(rec.age!==''){const n=parseFloat(rec.age); if(!isNaN(n)) v=n;} if(!isNaN(v)){ for(let i=0;i<BUCKETS.length;i++){ if(BUCKETS[i][1](v)){aAge[i]++;break;} } } const s=rec.sex==='男'||rec.sex==='女'?rec.sex:'未知'; aSex[s]++; }
             profileByProd[p]={age:aAge, sex:aSex, total:pat.size};
@@ -3077,17 +3131,29 @@ function buildShareData(opts){
     } else {
       data[cat]._charts = {share:[], hospList:[], hospShare:{}};
     }
+    // 主循环前预分组（一次遍历），供 left 直接取组、right 用 aggregateMixedFast 跳过 focus
+    const byProdWin = new Map();
+    for(const r of catRows){
+      let arr = byProdWin.get(r.prod);
+      if(!arr){ arr=[]; byProdWin.set(r.prod, arr); }
+      arr.push(r);
+    }
+    const byProdDot = new Map();
+    for(const r of catRowsDot){
+      let arr = byProdDot.get(r.prod);
+      if(!arr){ arr=[]; byProdDot.set(r.prod, arr); }
+      arr.push(r);
+    }
     for(const focus of selProducts){
       // 患者人数按窗口(catRows)，DOT按回滚12月(catRowsDot)——与主工具 recalc 口径一致
-      const leftWin  = catRows.filter(r=> r.prod===focus);
-      const leftDot  = catRowsDot.filter(r=> r.prod===focus);
-      const rightWin = catRows.filter(r=> r.prod!==focus);
-      const rightDot = catRowsDot.filter(r=> r.prod!==focus);
+      const leftWin  = byProdWin.get(focus) || [];
+      const leftDot  = byProdDot.get(focus) || [];
       let leftDoctor=[], rightDoctor=[], leftHosp=[], rightHosp=[];
       if(sec.doctor || sec.hospital){
         // 机会市场：右表(医院,科室) 不在左表 TOP15（与主工具 recalc 口径一致）
         const leftAggU  = aggregateMixed(leftWin, leftDot, 'doctor');
-        const rightAggU = aggregateMixed(rightWin, rightDot, 'doctor');
+        // right 用单次遍历聚合（跳过 focus 品种），避免每品种全表 filter+聚合
+        const rightAggU = aggregateMixedFast(catRows, catRowsDot, 'doctor', focus);
         [leftAggU, rightAggU].forEach(a=>a.sort(cmp));
         const leftTopKeys = new Set(leftAggU.slice(0,15).map(r=>r.hosp+'§'+r.dept));
         rightAggU.forEach(r=>{ r._opp = !leftTopKeys.has(r.hosp+'§'+r.dept); });
@@ -3097,7 +3163,7 @@ function buildShareData(opts){
         }
         if(sec.hospital){
           leftHosp   = anonymize(aggregateMixed(leftWin, leftDot, 'hospital').sort(cmp),  maskMode).map(toHospRow).slice(0,CAP);
-          rightHosp  = anonymize(aggregateMixed(rightWin, rightDot, 'hospital').sort(cmp), maskMode).map(toHospRow).slice(0,CAP);
+          rightHosp  = anonymize(aggregateMixedFast(catRows, catRowsDot, 'hospital', focus).sort(cmp), maskMode).map(toHospRow).slice(0,CAP);
         }
       }
       // 时间趋势/城市/患者画像 改为 cat 级"逐品种明细"存储（见上方 if(sec.multi) 块），分享版可随品种筛选实时重聚合
@@ -3788,7 +3854,15 @@ document.getElementById('shareModalOk').addEventListener('click', async ()=>{
   const btn=document.getElementById('shareModalOk');
   btn.disabled=true; btn.textContent='⏳ 生成中…';
 
-  const html = buildShareHTML(opts);
+  let html;
+  try{
+    html = buildShareHTML(opts);
+  }catch(err){
+    console.error('分享导出失败:', err);
+    btn.disabled=false; btn.textContent='确认导出';
+    alert('导出失败：'+(err&&err.message?err.message:err));
+    return;
+  }
   if(!html){ btn.disabled=false; btn.textContent='确认导出'; return; }
   _lastShareHtml = html;
 
