@@ -415,7 +415,7 @@
         <div class="btn-bar">
           <button class="btn" id="recalc">重新计算</button>
           <button class="btn ghost" id="exportBtn">⬇ 一键导出全部 (Excel)</button>
-          <button class="btn share" id="shareBtn">🔒 导出分享版 (可选内容)</button>
+          <button class="btn share" id="shareBtn">🔒 导出脱敏快照 (当前视图)</button>
           <span class="meta" id="metaLine"></span>
         </div>
       </div>
@@ -587,20 +587,20 @@
   <div class="footer">本地离线工具 · 数据不出本机 · 适配 销售数据汇总.xlsx 结构</div>
 </div>
 
-<!-- 导出分享版 · 内容选项弹窗 -->
+<!-- 导出脱敏快照 · 内容选项弹窗 -->
 <div class="modal-mask hidden" id="shareModal">
   <div class="modal">
     <div class="modal-head">
-      <h3>导出分享版 · 选择内容</h3>
+      <h3>导出脱敏快照 · 选择内容</h3>
       <button class="modal-x" id="shareModalClose" title="关闭">×</button>
     </div>
     <div class="modal-body">
       <div class="opt-group">
-        <div class="opt-title">适应症大类 <span class="opt-hint">（接收方可在选中范围内切换）</span> <span class="all-link" data-all="cats">全选</span></div>
+        <div class="opt-title">适应症大类 <span class="opt-hint">（按当前所选大类导出）</span> <span class="all-link" data-all="cats">全选</span></div>
         <div class="opt-checks" id="optCats"></div>
       </div>
       <div class="opt-group">
-        <div class="opt-title">焦点品种 <span class="opt-hint">（接收方可切换；留空 = 全部品种）</span> <span class="all-link" data-all="products">全选</span></div>
+        <div class="opt-title">焦点品种 <span class="opt-hint">（按当前所选品种导出）</span> <span class="all-link" data-all="products">全选</span></div>
         <div class="opt-checks" id="optProducts"></div>
       </div>
       <div class="opt-group">
@@ -622,7 +622,7 @@
         </div>
       </div>
       <div class="opt-done hidden" id="shareDone">
-        <div class="done-row"><span class="done-ico">✅</span><b>分享版已生成</b></div>
+        <div class="done-row"><span class="done-ico">✅</span><b>脱敏快照已生成</b></div>
         <div class="share-link-box">
           <div class="share-link-row">
             <input type="text" id="shareLink" readonly class="share-link-input" />
@@ -640,7 +640,7 @@
     </div>
     <div class="modal-foot">
       <button class="btn ghost" id="shareModalCancel">取消</button>
-      <button class="btn share" id="shareModalOk">确认导出</button>
+      <button class="btn share" id="shareModalOk">导出脱敏快照</button>
     </div>
   </div>
 </div>
@@ -2940,7 +2940,7 @@ function buildShareHTML(opts){
   const html = renderShareDoc(SHARE);
   const safe = s => (s||'').replace(/[\\/:*?"<>|]/g,'_');
   const indTag = (STATE.indFilter && STATE.indFilter.size) ? '_' + safe([...STATE.indFilter].slice(0,3).join('+')) : '';
-  const fname = `同类品种分析_分享_${safe(SHARE.meta.focus)}${indTag}.html`;
+  const fname = `同类品种分析_脱敏快照_${safe(SHARE.meta.focus)}${indTag}.html`;
   const blob = new Blob([html], {type:'text/html;charset=utf-8'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -2952,7 +2952,7 @@ function buildShareHTML(opts){
   if(sec.doctor) parts.push('医生明细');
   if(sec.hospital) parts.push('医院汇总');
   if(sec.multi) parts.push('多维分析');
-  setStatus(`已生成分享版：${fname}（内容：${parts.join('+')||'无'} · 单文件、底表不外泄）`, false);
+  setStatus(`已生成脱敏快照：${fname}（内容：${parts.join('+')||'无'} · 静态只读、脱敏、底表不外泄）`, false);
   return html;
 }
 
@@ -3249,9 +3249,238 @@ function buildShareData(opts){
 
 // 把 SHARE 数据对象渲染成独立、自包含、可交互的 HTML 文档字符串（内嵌全量脱敏汇总，离线可用）
 function renderShareDoc(share){
+  // ===== 静态脱敏快照：基于当前视图状态（STATE）渲染全部内容，无内嵌数据、无交互 JS，只读 =====
   const m = share.meta;
   const sec = share.opts.sections;
   const mv  = share.opts.multi;
+  const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const num = n => (n==null?0:n).toLocaleString();
+  const prodLabel = name => {
+    if(m.prodMask !== 'on') return name;
+    if(name === m.focus) return '本品';
+    return m.prodLetterMap[name] || name;
+  };
+  // 当前视图状态（与主面板所见一致）
+  const cat = m.catDefault;
+  const focus = m.focus;
+  const catData = share.data[cat] || {};
+  const charts = catData._charts || {};
+  const hbMap = charts.hb || {};
+  const hbMonths = hbMap.months || [];
+  const hbTxt = hbMonths.length>=2 ? ('环比口径 '+hbMonths[0]+' vs '+hbMonths[1]) : '';
+  const hbHtml = (cur, prev)=>{
+    if(prev>0){ const v=(cur-prev)/prev*100; const c=v>=0?'hb-up':'hb-down'; return '<span class="'+c+'">'+(v>=0?'▲':'▼')+Math.abs(v).toFixed(1)+'%</span><span class="hb-prev">'+num(prev)+'</span>'; }
+    return '<span class="hb-na">—</span>';
+  };
+  const topN = m.topN||30;
+  const sortBy = m.sortBy || 'patients';
+  const cmp = sortBy==='dot' ? ((a,b)=> b.dot-a.dot || b.patients-a.patients) : ((a,b)=> b.patients-a.patients || b.dot-a.dot);
+  // 当前左右表视图模式（医生明细/医院汇总）
+  const lMode = (STATE.viewMode && STATE.viewMode.left)  ? STATE.viewMode.left  : (sec.doctor?'doctor':'hospital');
+  const rMode = (STATE.viewMode && STATE.viewMode.right) ? STATE.viewMode.right : (sec.doctor?'doctor':'hospital');
+  const useTable = (sec.doctor || sec.hospital) && catData[focus];
+
+  // ---- 左/右表静态渲染 ----
+  let tablesHtml = '';
+  if(useTable){
+    const sideHtml = (side, mode, title)=>{
+      const rows0 = (catData[focus][side] && catData[focus][side][mode]) ? catData[focus][side][mode].slice() : [];
+      const rows = rows0.sort(cmp).slice(0, topN);
+      const isHosp = mode==='hospital';
+      let head = isHosp
+        ? '<tr><th class="rank">#</th><th>医疗单位</th><th class="num">患者人数</th><th class="num">DOT</th><th class="num">医生数</th></tr>'
+        : '<tr><th class="rank">#</th><th>医疗单位</th><th>处方科室</th><th>处方医生</th><th class="num">患者人数</th><th class="num">DOT</th></tr>';
+      let body = rows.length ? rows.map((r,i)=> isHosp
+        ? '<tr><td class="rank">'+(i+1)+'</td><td>'+esc(r.hosp)+'</td><td class="num">'+num(r.patients)+'</td><td class="num">'+r.dot.toFixed(2)+'</td><td class="num">'+r.docCount+'</td></tr>'
+        : '<tr class="'+(r.opp?'opp':'')+'"><td class="rank">'+(i+1)+'</td><td>'+esc(r.hosp)+'</td><td>'+esc(r.dept)+'</td><td>'+esc(r.doc)+'</td><td class="num">'+num(r.patients)+'</td><td class="num">'+r.dot.toFixed(2)+'</td></tr>'
+      ).join('') : '<tr><td colspan="6" class="empty">该适应症 / 品种组合暂无数据</td></tr>';
+      let bars = '';
+      if(!isHosp && rows.length){
+        const byHosp = {};
+        rows.forEach(r=>{ const h=r.hosp; if(!byHosp[h]) byHosp[h]={hosp:h,patients:0,docs:{}}; byHosp[h].patients+=r.patients; byHosp[h].docs[r.doc]=1; });
+        const arr = Object.keys(byHosp).map(k=>byHosp[k]).sort((a,b)=>b.patients-a.patients).slice(0,10);
+        const max = arr.length?arr[0].patients:1;
+        bars = '<div class="bars-title">TOP 医院（按患者数合计，医生以 / 间隔）</div>' + arr.map(g=>{
+          const pct=(g.patients/max*100).toFixed(1);
+          const docs=Object.keys(g.docs).join('/');
+          return '<div class="bar-row"><div class="bar-name">'+esc(g.hosp)+' / '+esc(docs)+'</div><div class="bar-track"><div class="bar-fill" style="width:'+pct+'%"></div></div><div class="bar-val">'+num(g.patients)+'</div></div>';
+        }).join('');
+      }
+      return '<h2>'+title+'</h2><div class="side-title">'+title+'</div><table><thead>'+head+'</thead><tbody>'+body+'</tbody></table>'+(bars?'<div class="bars">'+bars+'</div>':'');
+    };
+    tablesHtml = sideHtml('left', lMode, '左表 · 焦点品种：'+prodLabel(focus))
+      + sideHtml('right', rMode, '右表 · 同类品种整体（'+m.compCount+' 个品种）');
+  }
+
+  // ---- 多维分析静态渲染（全部平铺）----
+  let multiHtml = '';
+  if(sec.multi){
+    // ① 同类品种份额（单月口径，当月患者数降序）
+    if(mv.share){
+      let items = (charts.share||[]).map(it=>{
+        const hb = hbMap.shareByProd && hbMap.shareByProd[it.prod];
+        const curP = hb ? hb.curP : it.patients;
+        return Object.assign({}, it, {_curP:curP});
+      });
+      items.sort((a,b)=> b._curP - a._curP);
+      const tot = items.reduce((a,b)=>a+b._curP,0)||1;
+      const max = Math.max(...items.map(x=>x._curP),0)||1;
+      let rows = items.map(it=>{
+        const isF = it.prod===focus;
+        const hb = hbMap.shareByProd && hbMap.shareByProd[it.prod];
+        const curP = hb ? hb.curP : it.patients;
+        const curQ = hb ? hb.curQ : it.qty;
+        const curShare = tot>0 ? (curP/tot*100) : 0;
+        let shareHb='<span class="hb-na">—</span>', qtyHb='<span class="hb-na">—</span>';
+        if(hb){
+          const prevShare = tot>0 ? (hb.prevP/(tot - curP + hb.prevP)*100) : 0;
+          shareHb = hbHtml(curShare, prevShare);
+          qtyHb = hbHtml(curQ, hb.prevQ);
+        }
+        return '<tr class="'+(isF?'c-focus':'')+'"><td>'+esc(prodLabel(it.prod))+(isF?' ★':'')+'</td>'+
+          '<td class="num">'+num(curP)+'</td>'+
+          '<td class="num">'+(hb?hbHtml(curP,hb.prevP):'<span class="hb-na">—</span>')+'</td>'+
+          '<td class="num">'+curShare.toFixed(1)+'%</td>'+
+          '<td class="num">'+shareHb+'</td>'+
+          '<td class="num">'+num(curQ)+'</td>'+
+          '<td class="num">'+qtyHb+'</td></tr>';
+      }).join('');
+      let bars = items.map(it=>{
+        const isF = it.prod===focus;
+        const hb = hbMap.shareByProd && hbMap.shareByProd[it.prod];
+        const curP = hb ? hb.curP : it.patients;
+        const curQ = hb ? hb.curQ : it.qty;
+        const w=(curP/max*100).toFixed(1);
+        const color = isF?'linear-gradient(90deg,#3f6fb5,#5b8dd6)':'#c2cce0';
+        return '<div class="bar-row"><div class="bar-name">'+esc(prodLabel(it.prod))+(isF?' ★':'')+'</div><div class="bar-track"><div class="bar-fill" style="width:'+w+'%;background:'+color+'" data-tip="'+esc(prodLabel(it.prod))+'：'+num(curP)+' 人 · '+num(curQ)+' 销量"></div></div><div class="bar-val">'+num(curP)+'</div></div>';
+      }).join('');
+      multiHtml += '<h2>多维分析 · 同类品种份额</h2><div class="mv-head">各品种去重患者数（'+((hbMonths[1])||'本月')+' 单月）'+(hbTxt?' · '+hbTxt:'')+'</div><table><thead><tr><th>品种</th><th class="num">患者数</th><th class="num">患者数环比</th><th class="num">患者占比</th><th class="num">患者占比环比</th><th class="num">销量(转化后数量)</th><th class="num">销量环比</th></tr></thead><tbody>'+rows+'</tbody></table><div class="bars">'+bars+'</div>';
+    }
+    // ② 医院份额（锁定医院=患者数第一）
+    if(mv.hosp){
+      const hlist = charts.hospList || [];
+      let lockHosp = (STATE.lockHospital && hlist.some(o=>o.hosp===STATE.lockHospital)) ? STATE.lockHospital : (hlist.length?hlist[0].hosp:'');
+      let items = (lockHosp && charts.hospShare && charts.hospShare[lockHosp]) ? charts.hospShare[lockHosp].map(it=>{
+        const hb = hbMap.hospByProd && hbMap.hospByProd[lockHosp] && hbMap.hospByProd[lockHosp][it.prod];
+        const curP = hb ? hb.curP : it.patients;
+        return Object.assign({}, it, {_curP:curP});
+      }) : [];
+      items.sort((a,b)=> b._curP - a._curP);
+      const tot = items.reduce((a,b)=>a+b._curP,0)||1;
+      const max = Math.max(...items.map(x=>x._curP),0)||1;
+      let rows = items.map(it=>{
+        const isF = it.prod===focus;
+        const hb = hbMap.hospByProd && hbMap.hospByProd[lockHosp] && hbMap.hospByProd[lockHosp][it.prod];
+        const curP = hb ? hb.curP : it.patients;
+        const curQ = hb ? hb.curQ : it.qty;
+        const curShare = tot>0 ? (curP/tot*100) : 0;
+        let shareHb='<span class="hb-na">—</span>', qtyHb='<span class="hb-na">—</span>';
+        if(hb){
+          const prevShare = hb.prevP>0 ? (hb.prevP/(tot - curP + hb.prevP)*100) : 0;
+          shareHb = hbHtml(curShare, prevShare);
+          qtyHb = hbHtml(curQ, hb.prevQ);
+        }
+        return '<tr class="'+(isF?'c-focus':'')+'"><td>'+esc(prodLabel(it.prod))+(isF?' ★':'')+'</td>'+
+          '<td class="num">'+num(curP)+'</td>'+
+          '<td class="num">'+(hb?hbHtml(curP,hb.prevP):'<span class="hb-na">—</span>')+'</td>'+
+          '<td class="num">'+curShare.toFixed(1)+'%</td>'+
+          '<td class="num">'+shareHb+'</td>'+
+          '<td class="num">'+num(curQ)+'</td>'+
+          '<td class="num">'+qtyHb+'</td></tr>';
+      }).join('');
+      let bars = items.map(it=>{
+        const isF = it.prod===focus;
+        const hb = hbMap.hospByProd && hbMap.hospByProd[lockHosp] && hbMap.hospByProd[lockHosp][it.prod];
+        const curP = hb ? hb.curP : it.patients;
+        const curQ = hb ? hb.curQ : it.qty;
+        const w=(curP/max*100).toFixed(1);
+        const color = isF?'linear-gradient(90deg,#3f6fb5,#5b8dd6)':'#c2cce0';
+        return '<div class="bar-row"><div class="bar-name">'+esc(prodLabel(it.prod))+(isF?' ★':'')+'</div><div class="bar-track"><div class="bar-fill" style="width:'+w+'%;background:'+color+'" data-tip="'+esc(prodLabel(it.prod))+'：'+num(curP)+' 人 ('+(curP/tot*100).toFixed(1)+'%)"></div></div><div class="bar-val">'+num(curP)+'</div></div>';
+      }).join('');
+      multiHtml += '<h2>多维分析 · 医院份额</h2><div class="mv-head">'+esc(lockHosp||'')+' · 各品种去重患者数（'+((hbMonths[1])||'本月')+' 单月）'+(hbTxt?' · '+hbTxt:'')+'</div><table><thead><tr><th>品种</th><th class="num">患者数</th><th class="num">患者数环比</th><th class="num">患者占比</th><th class="num">患者占比环比</th><th class="num">销量(转化后数量)</th><th class="num">销量环比</th></tr></thead><tbody>'+rows+'</tbody></table><div class="bars">'+bars+'</div>';
+    }
+    // ③ 城市视角
+    if(mv.city){
+      const cityByProd = charts.cityByProd;
+      if(cityByProd){
+        const compSet = Object.keys(cityByProd).filter(p=>p!==focus);
+        const fMap = cityByProd[focus] || {};
+        const cMap = {};
+        for(const p of compSet){ const mm = cityByProd[p]||{}; for(const c in mm){ cMap[c]=(cMap[c]||0)+mm[c]; } }
+        const cities = new Set([...Object.keys(fMap), ...Object.keys(cMap)]);
+        const list = [...cities].map(c=>({city:c, f:fMap[c]||0, c:cMap[c]||0})).filter(x=>x.f>0||x.c>0).sort((a,b)=>(b.f+b.c)-(a.f+a.c)).slice(0,15);
+        if(list.length){
+          let rows='', bars='';
+          list.forEach(x=>{
+            const tot=x.f+x.c||1;
+            rows += '<tr><td>'+esc(x.city)+'</td><td class="num">'+num(x.f)+'</td><td class="num">'+num(x.c)+'</td><td class="num">'+(x.f/tot*100).toFixed(1)+'%</td></tr>';
+            bars += '<div class="city-grp"><div class="bar-row"><div class="bar-name">'+esc(x.city)+'·焦点</div><div class="bar-track"><div class="bar-fill" style="width:'+(x.f/tot*100).toFixed(1)+'%" data-tip="'+esc(x.city)+'·焦点：'+num(x.f)+' 人"></div></div><div class="bar-val">'+num(x.f)+'</div></div>';
+            bars += '<div class="bar-row"><div class="bar-name">'+esc(x.city)+'·同类品种</div><div class="bar-track"><div class="bar-fill" style="width:'+(x.c/tot*100).toFixed(1)+'%;background:#c2cce0" data-tip="'+esc(x.city)+'·同类品种合计：'+num(x.c)+' 人"></div></div><div class="bar-val">'+num(x.c)+'</div></div></div>';
+          });
+          multiHtml += '<h2>多维分析 · 城市视角</h2><div class="mv-head">各城市去重患者数：焦点品种 vs 同类品种合计（TOP15）</div><table><thead><tr><th>城市</th><th class="num">焦点患者数</th><th class="num">同类品种患者数</th><th class="num">焦点占比</th></tr></thead><tbody>'+rows+'</tbody></table><div class="bars">'+bars+'</div>';
+        }
+      }
+    }
+    // ④ 时间趋势（静态 SVG）
+    if(mv.trend){
+      const t = charts.trendByProd;
+      if(t && t.months && t.months.length){
+        const months = t.months;
+        const metric = 'patients';
+        const fSeries = t.byProd[focus] || {P:months.map(()=>0), Q:months.map(()=>0)};
+        const fD = fSeries.P;
+        const compSet = Object.keys(t.byProd).filter(p=>p!==focus);
+        const cD = months.map((_,i)=> compSet.reduce((s,p)=>{ const arr=(t.byProd[p]||{})[metric==='patients'?'P':'Q']||[]; return s + (arr[i]||0); },0));
+        const W=660,H=280,pl=46,pr=14,pt=20,pb=36;
+        const innerW=W-pl-pr, innerH=H-pt-pb;
+        const maxV=Math.max(...fD,...cD,1);
+        const n=months.length;
+        const X=i=> n<=1? pl+innerW/2 : pl+innerW*i/(n-1);
+        const Y=v=> pt+innerH*(1-v/maxV);
+        const path=arr=> arr.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)).join(' ');
+        let svg='<svg viewBox="0 0 '+W+' '+H+'" class="trend-svg" preserveAspectRatio="xMidYMid meet">';
+        for(let g=0;g<=4;g++){ const yy=pt+innerH*g/4; svg+='<line x1="'+pl+'" y1="'+yy+'" x2="'+(W-pr)+'" y2="'+yy+'" stroke="#eef1f7"/><text x="'+(pl-6)+'" y="'+(yy+4)+'" text-anchor="end" class="axis">'+Math.round(maxV*(1-g/4))+'</text>'; }
+        svg+='<path d="'+path(fD)+'" fill="none" stroke="#305496" stroke-width="2.5"/>';
+        svg+='<path d="'+path(cD)+'" fill="none" stroke="#b9c4dd" stroke-width="2.5"/>';
+        const step=Math.ceil(n/8);
+        months.forEach((mm,i)=>{ if(i%step===0||i===n-1){ svg+='<text x="'+X(i)+'" y="'+(H-9)+'" text-anchor="middle" class="axis">'+esc(mm)+'</text>'; } });
+        svg+='<g transform="translate('+(pl+8)+','+(pt+4)+')"><rect width="12" height="8" fill="#305496"/><text x="16" y="8" class="axis">焦点 '+esc(prodLabel(focus))+'</text><rect x="110" width="12" height="8" fill="#b9c4dd"/><text x="126" y="8" class="axis">同类品种合计</text></g>';
+        svg+='</svg>';
+        multiHtml += '<h2>多维分析 · 时间趋势</h2><div class="mv-head">月度趋势（去重患者数）</div>'+svg;
+      }
+    }
+    // ⑤ 患者画像
+    if(mv.profile){
+      const pbp = charts.profileByProd;
+      if(pbp){
+        const BUCKETS=[['<18',x=>x<18],['18-29',x=>x>=18&&x<30],['30-39',x=>x<40],['40-49',x=>x<50],['50-59',x=>x<60],['60-69',x=>x<70],['70+',x=>x>=70]];
+        const compSet = Object.keys(pbp).filter(p=>p!==focus);
+        const fRec = pbp[focus] || {age:new Array(BUCKETS.length).fill(0), sex:{男:0,女:0,未知:0}};
+        const cAge=new Array(BUCKETS.length).fill(0), cSex={男:0,女:0,未知:0};
+        for(const p of compSet){ const rec=pbp[p]; if(!rec) continue; rec.age.forEach((v,i)=> cAge[i]+=v); cSex.男+=rec.sex.男; cSex.女+=rec.sex.女; cSex.未知+=rec.sex.未知; }
+        const fTot=fRec.age.reduce((a,b)=>a+b,0)||1, cTot=cAge.reduce((a,b)=>a+b,0)||1;
+        const fST=(fRec.sex.男+fRec.sex.女+fRec.sex.未知)||1, cST=(cSex.男+cSex.女+cSex.未知)||1;
+        const fAge=fRec.age;
+        let ageRows=fAge.map((v,i)=>'<tr><td>'+BUCKETS[i][0]+'</td><td class="num">'+(v/fTot*100).toFixed(1)+'%</td><td class="num">'+(cAge[i]/cTot*100).toFixed(1)+'%</td></tr>').join('');
+        let ageBars=fAge.map((v,i)=>{
+          const fp1=(v/fTot*100).toFixed(1), cp1=(cAge[i]/cTot*100).toFixed(1);
+          return '<div class="bar-row"><div class="bar-name">'+BUCKETS[i][0]+'·焦点</div><div class="bar-track"><div class="bar-fill" style="width:'+fp1+'%" data-tip="'+BUCKETS[i][0]+'·焦点：'+fp1+'%"></div></div><div class="bar-val">'+fp1+'%</div></div>'
+               + '<div class="bar-row"><div class="bar-name">'+BUCKETS[i][0]+'·同类品种</div><div class="bar-track"><div class="bar-fill" style="width:'+cp1+'%;background:#c2cce0" data-tip="'+BUCKETS[i][0]+'·同类品种合计：'+cp1+'%"></div></div><div class="bar-val">'+cp1+'%</div></div>';
+        }).join('');
+        let sexRows=[['男'],['女'],['未知']].map(b=>'<tr><td>'+b[0]+'</td><td class="num">'+(fRec.sex[b[0]]/fST*100).toFixed(1)+'%</td><td class="num">'+(cSex[b[0]]/cST*100).toFixed(1)+'%</td></tr>').join('');
+        let sexBars=[['男'],['女'],['未知']].map(b=>{
+          const fp1=(fRec.sex[b[0]]/fST*100).toFixed(1), cp1=(cSex[b[0]]/cST*100).toFixed(1);
+          return '<div class="bar-row"><div class="bar-name">'+b[0]+'·焦点</div><div class="bar-track"><div class="bar-fill" style="width:'+fp1+'%" data-tip="'+b[0]+'·焦点：'+fp1+'%"></div></div><div class="bar-val">'+fp1+'%</div></div>'
+               + '<div class="bar-row"><div class="bar-name">'+b[0]+'·同类品种</div><div class="bar-track"><div class="bar-fill" style="width:'+cp1+'%;background:#c2cce0" data-tip="'+b[0]+'·同类品种合计：'+cp1+'%"></div></div><div class="bar-val">'+cp1+'%</div></div>';
+        }).join('');
+        multiHtml += '<h2>多维分析 · 患者画像</h2><div class="mv-head">患者画像差异（组内占比 %）</div>'
+          + '<h4>年龄分层</h4><table><thead><tr><th>年龄段</th><th class="num">焦点品种</th><th class="num">同类品种合计</th></tr></thead><tbody>'+ageRows+'</tbody></table><div class="bars">'+ageBars+'</div>'
+          + '<h4>性别</h4><table><thead><tr><th>性别</th><th class="num">焦点品种</th><th class="num">同类品种合计</th></tr></thead><tbody>'+sexRows+'</tbody></table><div class="bars">'+sexBars+'</div>';
+      }
+    }
+  }
+
+  // ---- 头部信息 ----
   const contentTxt = [];
   if(sec.doctor) contentTxt.push('医生明细表');
   if(sec.hospital) contentTxt.push('医院汇总表');
@@ -3260,22 +3489,19 @@ function renderShareDoc(share){
     contentTxt.push('多维分析('+mvNames.join('/')+')');
   }
   const scopeTxt = [
-    `适应症大类：可切换（${m.cats.join(' / ')}）` + (m.indFilterTxt && m.indFilterTxt!=='全适应症' ? ' · 已限定：'+m.indFilterTxt : ''),
-    `焦点品种：可切换（共 ${m.products.length} 个）`,
     `时间窗口：${m.winTxt}`,
+    `适应症大类：${cat}${(m.indFilterTxt && m.indFilterTxt!=='全适应症') ? ' · 已限定：'+m.indFilterTxt : ''}`,
+    `焦点品种：${prodLabel(focus)}`,
     `医生脱敏：${m.maskTag}`,
-    `医院名称：明文（未脱敏）`,
+    `医院名称：明文`,
     `导出内容：${contentTxt.join(' + ')||'（无）'}`,
     `生成日期：${m.generatedAt}`,
   ].join(' &nbsp;·&nbsp; ');
 
-  // 防注入：JSON 中的 < 转义为 \u003c（对外页 script 不会提前闭合）
-  const json = JSON.stringify(share).replace(/</g,'\\u003c');
-
   return `<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>皮科/风湿 · 同类品种分析 · 分享版（${esc(m.focus)}）</title>
+<title>同类品种分析 · 脱敏快照（${esc(prodLabel(focus))}）</title>
 <style>
   :root{--brand:#305496;--muted:#7a8290;--ink:#1f2733;--line:#e3e8f0;--opp:#fff4e5;--opp-b:#f0a23c;}
   *{box-sizing:border-box;}
@@ -3284,18 +3510,6 @@ function renderShareDoc(share){
   .lock-banner{background:#eef6f0;border:1px solid #bfe0cc;color:#245f3d;border-radius:8px;padding:8px 14px;font-size:13px;margin-bottom:14px;}
   h1{font-size:20px;margin:0 0 4px;color:var(--brand);}
   .scope{font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.9;}
-  .controls{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;background:#f7f9fc;border:1px solid var(--line);border-radius:9px;padding:12px 16px;margin-bottom:10px;}
-  .ctl{display:flex;flex-direction:column;gap:5px;}
-  .ctl>label{font-size:12px;color:var(--muted);}
-  .tabs{display:flex;gap:6px;flex-wrap:wrap;}
-  .tabs .tab{border:1px solid var(--line);background:#fff;color:#33405a;border-radius:7px;padding:5px 12px;font-size:13px;cursor:pointer;}
-  .tabs .tab.active{background:var(--brand);color:#fff;border-color:var(--brand);}
-  .chart-prod-filter{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:4px 10px;border:1px solid var(--line);border-radius:20px;background:#fafbfc;font-size:12px;}
-  .chart-prod-filter label{display:inline-flex;align-items:center;gap:3px;cursor:pointer;padding:2px 6px;border-radius:12px;white-space:nowrap;}
-  .chart-prod-filter label:hover{background:#eef2f9;}
-  .chart-prod-filter label input{margin:0;cursor:pointer;accent-color:var(--brand);}
-  .chart-prod-filter .prod-all{font-weight:600;color:var(--brand);border-right:1px solid var(--line);padding-right:8px;margin-right:4px;}
-  select{border:1px solid var(--line);border-radius:7px;padding:6px 10px;font-size:13px;color:var(--ink);background:#fff;min-width:150px;}
   h2{font-size:16px;margin:22px 0 6px;color:var(--brand);border-left:4px solid var(--brand);padding-left:10px;}
   .side-title{font-size:13px;color:#33405a;margin-bottom:8px;font-weight:600;}
   table{border-collapse:collapse;width:100%;font-size:13px;margin-bottom:6px;}
@@ -3310,13 +3524,12 @@ function renderShareDoc(share){
   .bar-row{display:flex;align-items:center;gap:10px;margin:4px 0;font-size:12px;}
   .bar-name{width:260px;flex:none;color:#33405a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .bar-track{flex:1;background:#eef1f7;border-radius:5px;height:16px;overflow:hidden;}
-  .bar-fill{height:100%;background:linear-gradient(90deg,#3f6fb5,#5b8dd6);border-radius:5px;cursor:pointer;position:relative;}
+  .bar-fill{height:100%;background:linear-gradient(90deg,#3f6fb5,#5b8dd6);border-radius:5px;position:relative;}
   .bar-fill:hover::after{content:attr(data-tip);position:absolute;bottom:22px;left:50%;transform:translateX(-50%);
     background:rgba(30,41,59,.9);color:#fff;font-size:11.5px;padding:3px 8px;border-radius:4px;
     white-space:nowrap;z-index:99;pointer-events:none;font-variant-numeric:tabular-nums;}
   .bar-fill:hover::before{content:'';position:absolute;bottom:14px;left:50%;transform:translateX(-50%);
     border:5px solid transparent;border-top-color:rgba(30,41,59,.9);z-index:99;}
-  .trend-pt{cursor:crosshair;}
   .bar-val{width:64px;flex:none;text-align:right;font-variant-numeric:tabular-nums;color:#33405a;}
   .foot{margin-top:22px;font-size:11px;color:var(--muted);border-top:1px solid var(--line);padding-top:10px;}
   .empty{padding:18px;color:var(--muted);font-size:13px;}
@@ -3331,437 +3544,16 @@ function renderShareDoc(share){
   .hb-down{color:#d6336c;font-weight:600;}
   .hb-na{color:#9aa3b2;}
   .hb-prev{font-size:11px;color:#9aa3b2;margin-left:4px;}
+  @media print{ body{background:#fff;padding:0;} .wrap{box-shadow:none;border-radius:0;} }
 </style></head>
 <body><div class="wrap">
-  <div class="lock-banner">🔒 本页为交互分享版 · 数据已脱敏汇总 · 不含原始底表 · 可切换适应症与品种，但无法更改脱敏方式或查看患者级原始记录</div>
-  <h1>皮科/风湿 · 同类品种分析 · 分享版</h1>
+  <div class="lock-banner">🔒 静态脱敏快照 · 数据已脱敏汇总 · 不含原始底表 / oneid / 患者级原始记录 · 只读</div>
+  <h1>同类品种分析 · 脱敏快照</h1>
   <div class="scope">${scopeTxt}</div>
-  <div class="controls">
-    <div class="ctl"><label>适应症大类</label><div class="tabs" id="catTabs"></div></div>
-    <div class="ctl"><label>焦点品种</label><select id="focusSel"></select></div>
-    ${sec.doctor||sec.hospital?`<div class="ctl"><label>视图</label><select id="modeSel">${sec.doctor?'<option value="doctor">医生明细</option>':''}${sec.hospital?'<option value="hospital">医院汇总</option>':''}</select></div>`:''}
-    <div class="ctl"><label>排序</label><select id="sortSel"><option value="patients">患者数</option><option value="dot">DOT</option></select></div>
-  </div>
-  ${sec.doctor||sec.hospital?`
-  <h2>左表 · 焦点品种</h2>
-  <div id="leftTitle" class="side-title"></div>
-  <div id="leftTable"></div>
-  <div id="leftBars" class="bars"></div>
-  <h2>右表 · 同类品种整体</h2>
-  <div id="rightTitle" class="side-title"></div>
-  <div id="rightTable"></div>
-  <div id="rightBars" class="bars"></div>`:''}
-  ${(sec.multi&&(mv.share||mv.city||mv.trend||mv.profile||mv.hosp))?`
-  <h2>多维分析视角</h2>
-  <div class="controls">
-    <div class="ctl"><label>视角</label><div class="tabs" id="mviewTabs"></div></div>
-    <div class="ctl"><label>品种筛选</label><div id="mviewProdFilter" class="chart-prod-filter"></div></div>
-    <div class="ctl"><label>适应症大类</label><select id="mviewCatSel"></select></div>
-    <div class="ctl" id="trendCtl" style="display:none"><label>趋势指标</label><select id="trendSel"><option value="patients">患者数</option><option value="qty">销量(转化后数量)</option></select></div>
-    <div class="ctl" id="hospCtl" style="display:none"><label>锁定医院</label><select id="lockHospSel" style="min-width:260px;"></select></div>
-  </div>
-  <div id="mview"></div>`:''}
-  <div class="foot">本分享版由「同类品种分析工具」生成，仅含聚合与脱敏后的结果数据，未包含任何患者级原始记录（oneid / 开票抬头 / 逐条处方）。对方可在本页内切换适应症大类与焦点品种${(sec.multi&&(mv.share||mv.city||mv.trend||mv.profile||mv.hosp))?'、查看多维分析视角':''}，但底表原始数据不出本机、不可见、不可改脱敏。导出内容：${contentTxt.join(' + ')||'（无）'}。</div>
-</div>
-<script>
-const SHARE = ${json};
-(function(){
-  const $ = id => document.getElementById(id);
-  const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  const num = n => (n==null?0:n).toLocaleString();
-  const O = SHARE.opts;
-  const sec = O.sections, mv = O.multi;
-  const hasDoctor=sec.doctor, hasHosp=sec.hospital, hasTable=hasDoctor||hasHosp;
-  const hasMulti = sec.multi && (mv.share||mv.city||mv.trend||mv.profile||mv.hosp);
-  const modes=[]; if(hasDoctor)modes.push('doctor'); if(hasHosp)modes.push('hospital');
-  const mvKeys=[]; if(mv.share)mvKeys.push('share'); if(mv.city)mvKeys.push('city'); if(mv.trend)mvKeys.push('trend'); if(mv.profile)mvKeys.push('profile'); if(mv.hosp)mvKeys.push('hosp');
-  const st = { cat: SHARE.meta.catDefault, focus: SHARE.meta.focusDefault, mode: modes[0]||'doctor', sort: SHARE.meta.sortBy, mview: mvKeys[0]||'share', trendMetric:'patients', lockHosp:'', prodFilter:null };
-
-  // 产品脱敏展示名（与主工具一致：焦点→本品，同类品种→A品/B品…）
-  function prodLabel(name){
-    if(SHARE.meta.prodMask !== 'on') return name;
-    if(name === st.focus) return '本品';
-    return SHARE.meta.prodLetterMap[name] || name;
-  }
-
-  function getRows(side){
-    const slice = (SHARE.data[st.cat] && SHARE.data[st.cat][st.focus] && SHARE.data[st.cat][st.focus][side][st.mode]) || [];
-    const arr = slice.slice();
-    arr.sort((a,b)=> st.sort==='dot' ? (b.dot-a.dot || b.patients-a.patients) : (b.patients-a.patients || b.dot-a.dot));
-    return arr.slice(0, SHARE.meta.topN);
-  }
-  function drawSide(side, title){
-    const tbl=$(side+'Table'); if(!tbl) return;
-    const rows = getRows(side);
-    const isHosp = st.mode==='hospital';
-    let head = isHosp
-      ? '<tr><th class="rank">#</th><th>医疗单位</th><th class="num">患者人数</th><th class="num">DOT</th><th class="num">医生数</th></tr>'
-      : '<tr><th class="rank">#</th><th>医疗单位</th><th>处方科室</th><th>处方医生</th><th class="num">患者人数</th><th class="num">DOT</th></tr>';
-    let body = rows.length ? rows.map((r,i)=> isHosp
-      ? '<tr><td class="rank">'+(i+1)+'</td><td>'+esc(r.hosp)+'</td><td class="num">'+num(r.patients)+'</td><td class="num">'+r.dot.toFixed(2)+'</td><td class="num">'+r.docCount+'</td></tr>'
-      : '<tr class="'+(r.opp?'opp':'')+'"><td class="rank">'+(i+1)+'</td><td>'+esc(r.hosp)+'</td><td>'+esc(r.dept)+'</td><td>'+esc(r.doc)+'</td><td class="num">'+num(r.patients)+'</td><td class="num">'+r.dot.toFixed(2)+'</td></tr>'
-    ).join('') : '<tr><td colspan="6" class="empty">该适应症 / 品种组合暂无数据</td></tr>';
-    tbl.innerHTML = '<table><thead>'+head+'</thead><tbody>'+body+'</tbody></table>';
-    const tt=$(side+'Title'); if(tt) tt.textContent = title;
-    const barsEl = $(side+'Bars');
-    if(barsEl){
-      if(!isHosp && rows.length){
-        const byHosp = {};
-        rows.forEach(r=>{ const h=r.hosp; if(!byHosp[h]) byHosp[h]={hosp:h,patients:0,docs:{}}; byHosp[h].patients+=r.patients; byHosp[h].docs[r.doc]=1; });
-        const arr = Object.keys(byHosp).map(k=>byHosp[k]).sort((a,b)=>b.patients-a.patients).slice(0,10);
-        const max = arr.length?arr[0].patients:1;
-        barsEl.innerHTML = '<div class="bars-title">TOP 医院（按患者数合计，医生以 / 间隔）</div>' + arr.map(g=>{
-          const pct=(g.patients/max*100).toFixed(1);
-          const docs=Object.keys(g.docs).join('/');
-          return '<div class="bar-row"><div class="bar-name">'+esc(g.hosp)+' / '+esc(docs)+'</div><div class="bar-track"><div class="bar-fill" style="width:'+pct+'%"></div></div><div class="bar-val">'+num(g.patients)+'</div></div>';
-        }).join('');
-      } else { barsEl.innerHTML=''; }
-    }
-  }
-  function sync(){
-    const ct=$('catTabs'); if(ct){ [...ct.children].forEach(b=> b.classList.toggle('active', b.textContent===st.cat)); }
-    const mcs=$('mviewCatSel'); if(mcs) mcs.value=st.cat;
-    if($('leftTable')){ drawSide('left', '焦点品种：'+prodLabel(st.focus)); drawSide('right', '同类品种整体（'+(SHARE.meta.compCount)+' 个品种）'); }
-    if($('mview')){ buildHospSel(); renderMview(); }
-  }
-
-  /* ===== 多维分析视角渲染（纯 CSS / SVG，无外部库） ===== */
-  function renderShare(){
-    const catData = SHARE.data[st.cat];
-    if(!catData || !catData._charts){ $('mview').innerHTML='<div class="empty">暂无数据</div>'; return; }
-    let items = catData._charts.share||[];
-    const fp = getMviewProds();
-    if(fp) items = items.filter(it => fp.has(it.prod));
-    // 环比口径：最新月 vs 上月（与主工具一致），来自导出时预聚合的 hb.shareByProd
-    const hbMap = (catData._charts.hb && catData._charts.hb.shareByProd) || {};
-    const hbMonths = (catData._charts.hb && catData._charts.hb.months) || [];
-    const hbTxt = hbMonths.length>=2 ? ('环比口径 '+hbMonths[0]+' vs '+hbMonths[1]) : '';
-    const hbHtml = (cur, prev)=>{
-      if(prev>0){ const v=(cur-prev)/prev*100; const c=v>=0?'hb-up':'hb-down'; return '<span class="'+c+'">'+(v>=0?'▲':'▼')+Math.abs(v).toFixed(1)+'%</span><span class="hb-prev">'+num(prev)+'</span>'; }
-      return '<span class="hb-na">—</span>';
-    };
-    // 先按"当月患者数"降序排（与显示口径一致），焦点品种置顶；max/tot 同步按当月口径算
-    items = items.map(it=>{
-      const hb = hbMap[it.prod];
-      const curP = hb ? hb.curP : it.patients;
-      return Object.assign(it, { _curP: curP });
-    });
-    items.sort((a,b)=> b._curP - a._curP);
-    const tot = items.reduce((a,b)=>a+b._curP,0)||1;
-    const max = Math.max(...items.map(x=>x._curP),0)||1;
-    let rows = items.map(it=>{
-      const isF = it.prod===st.focus;
-      const hb = hbMap[it.prod];
-      // 患者数/销量统一为单月口径（hbM 本月），无环比数据时回退窗口值
-      const curP = hb ? hb.curP : it.patients;
-      const curQ = hb ? hb.curQ : it.qty;
-      const curShare = tot>0 ? (curP/tot*100) : 0;
-      let shareHb='<span class="hb-na">—</span>', qtyHb='<span class="hb-na">—</span>';
-      if(hb){
-        const prevShare = tot>0 ? (hb.prevP/(tot - curP + hb.prevP)*100) : 0;   // 近似上月占比
-        shareHb = hbHtml(curShare, prevShare);
-        qtyHb = hbHtml(curQ, hb.prevQ);
-      }
-      return '<tr class="'+(isF?'c-focus':'')+'"><td>'+esc(prodLabel(it.prod))+(isF?' ★':'')+'</td>'+
-        '<td class="num">'+num(curP)+'</td>'+
-        '<td class="num">'+(hb?hbHtml(curP,hb.prevP):'<span class="hb-na">—</span>')+'</td>'+
-        '<td class="num">'+curShare.toFixed(1)+'%</td>'+
-        '<td class="num">'+shareHb+'</td>'+
-        '<td class="num">'+num(curQ)+'</td>'+
-        '<td class="num">'+qtyHb+'</td></tr>';
-    }).join('');
-    let bars = items.map(it=>{
-      const isF = it.prod===st.focus;
-      const hb = hbMap[it.prod];
-      const curP = hb ? hb.curP : it.patients;
-      const curQ = hb ? hb.curQ : it.qty;
-      const w=(curP/max*100).toFixed(1);
-      const color = isF?'linear-gradient(90deg,#3f6fb5,#5b8dd6)':'#c2cce0';
-      return '<div class="bar-row"><div class="bar-name">'+esc(prodLabel(it.prod))+(isF?' ★':'')+'</div><div class="bar-track"><div class="bar-fill" style="width:'+w+'%;background:'+color+'" data-tip="'+esc(prodLabel(it.prod))+'：'+num(curP)+' 人 · '+num(curQ)+' 销量"></div></div><div class="bar-val">'+num(curP)+'</div></div>';
-    }).join('');
-    $('mview').innerHTML = '<div class="mv-head">各品种去重患者数（'+((hbMonths[1])||'本月')+' 单月）'+(hbTxt?' · 环比 '+hbTxt:'')+'</div><table><thead><tr><th>品种</th><th class="num">患者数</th><th class="num">患者数环比</th><th class="num">患者占比</th><th class="num">患者占比环比</th><th class="num">销量(转化后数量)</th><th class="num">销量环比</th></tr></thead><tbody>'+rows+'</tbody></table><div class="bars">'+bars+'</div>';
-  }
-  function renderCity(){
-    const cd = (SHARE.data[st.cat] && SHARE.data[st.cat]._charts) || {};
-    const cityByProd = cd.cityByProd;
-    if(!cityByProd){ $('mview').innerHTML='<div class="empty">该适应症下暂无城市数据</div>'; return; }
-    const fp = getMviewProds();
-    const compSet = fp ? [...fp].filter(p=>p!==st.focus) : Object.keys(cityByProd).filter(p=>p!==st.focus);
-    const fMap = cityByProd[st.focus] || {};
-    const cMap = {};
-    for(const p of compSet){ const m = cityByProd[p]||{}; for(const c in m){ cMap[c]=(cMap[c]||0)+m[c]; } }
-    const cities=new Set([...Object.keys(fMap), ...Object.keys(cMap)]);
-    const list=[...cities].map(c=>({city:c, f:fMap[c]||0, c:cMap[c]||0})).filter(x=>x.f>0||x.c>0).sort((a,b)=>(b.f+b.c)-(a.f+a.c)).slice(0,15);
-    if(!list.length){ $('mview').innerHTML='<div class="empty">该焦点品种在当前适应症下暂无城市数据</div>'; return; }
-    let rows='', bars='';
-    list.forEach(x=>{
-      const tot=x.f+x.c||1;
-      rows += '<tr><td>'+esc(x.city)+'</td><td class="num">'+num(x.f)+'</td><td class="num">'+num(x.c)+'</td><td class="num">'+(x.f/tot*100).toFixed(1)+'%</td></tr>';
-      bars += '<div class="city-grp"><div class="bar-row"><div class="bar-name">'+esc(x.city)+'·焦点</div><div class="bar-track"><div class="bar-fill" style="width:'+(x.f/tot*100).toFixed(1)+'%" data-tip="'+esc(x.city)+'·焦点：'+num(x.f)+' 人 ('+(x.f/tot*100).toFixed(1)+'%)"></div></div><div class="bar-val">'+num(x.f)+'</div></div>';
-      bars += '<div class="bar-row"><div class="bar-name">'+esc(x.city)+'·同类品种</div><div class="bar-track"><div class="bar-fill" style="width:'+(x.c/tot*100).toFixed(1)+'%;background:#c2cce0" data-tip="'+esc(x.city)+'·同类品种合计：'+num(x.c)+' 人 ('+(x.c/tot*100).toFixed(1)+'%)"></div></div><div class="bar-val">'+num(x.c)+'</div></div></div>';
-    });
-    $('mview').innerHTML = '<div class="mv-head">各城市去重患者数：焦点品种 vs 同类品种合计（TOP15·仅含筛选品种）</div><table><thead><tr><th>城市</th><th class="num">焦点患者数</th><th class="num">同类品种患者数</th><th class="num">焦点占比</th></tr></thead><tbody>'+rows+'</tbody></table><div class="bars">'+bars+'</div>';
-  }
-  function renderTrend(){
-    const cd = (SHARE.data[st.cat] && SHARE.data[st.cat]._charts) || {};
-    const t = cd.trendByProd;
-    if(!t || !t.months || !t.months.length){ $('mview').innerHTML='<div class="empty">该适应症下暂无趋势数据</div>'; return; }
-    const months = t.months;
-    const fp = getMviewProds();
-    const metric = st.trendMetric;
-    const fSeries = t.byProd[st.focus] || {P:months.map(()=>0), Q:months.map(()=>0)};
-    const fD = metric==='patients' ? fSeries.P : fSeries.Q;
-    const compSet = fp ? [...fp].filter(p=>p!==st.focus) : Object.keys(t.byProd).filter(p=>p!==st.focus);
-    const cD = months.map((_,i)=> compSet.reduce((s,p)=>{ const arr=(t.byProd[p]||{})[metric==='patients'?'P':'Q']||[]; return s + (arr[i]||0); },0));
-    const W=660,H=280,pl=46,pr=14,pt=20,pb=36;
-    const innerW=W-pl-pr, innerH=H-pt-pb;
-    const maxV=Math.max(...fD,...cD,1);
-    const n=months.length;
-    const X=i=> n<=1? pl+innerW/2 : pl+innerW*i/(n-1);
-    const Y=v=> pt+innerH*(1-v/maxV);
-    const path=arr=> arr.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)).join(' ');
-    let svg='<svg viewBox="0 0 '+W+' '+H+'" class="trend-svg" preserveAspectRatio="xMidYMid meet" id="shareTrendSvg">';
-    for(let g=0;g<=4;g++){ const yy=pt+innerH*g/4; svg+='<line x1="'+pl+'" y1="'+yy+'" x2="'+(W-pr)+'" y2="'+yy+'" stroke="#eef1f7"/><text x="'+(pl-6)+'" y="'+(yy+4)+'" text-anchor="end" class="axis">'+Math.round(maxV*(1-g/4))+'</text>'; }
-    svg+='<path d="'+path(fD)+'" fill="none" stroke="#305496" stroke-width="2.5"/>';
-    svg+='<path d="'+path(cD)+'" fill="none" stroke="#b9c4dd" stroke-width="2.5"/>';
-    // 数据点（不可见但可 hover 的热区圆）
-    for(let i=0;i<n;i++){
-      const fv=fD[i], cv=cD[i];
-      svg+='<circle cx="'+X(i)+'" cy="'+Y(fv)+'" r="8" fill="transparent" class="trend-pt" data-month="'+esc(months[i])+'" data-fv="'+fv+'" data-cv="'+cv+'" data-type="focus"/>';
-      svg+='<circle cx="'+X(i)+'" cy="'+Y(cv)+'" r="8" fill="transparent" class="trend-pt" data-month="'+esc(months[i])+'" data-fv="'+fv+'" data-cv="'+cv+'" data-type="comp"/>';
-    }
-    const step=Math.ceil(n/8);
-    months.forEach((m,i)=>{ if(i%step===0||i===n-1){ svg+='<text x="'+X(i)+'" y="'+(H-9)+'" text-anchor="middle" class="axis">'+m+'</text>'; } });
-    svg+='<g transform="translate('+(pl+8)+','+(pt+4)+')"><rect width="12" height="8" fill="#305496"/><text x="16" y="8" class="axis">焦点 '+esc(prodLabel(st.focus))+'</text><rect x="110" width="12" height="8" fill="#b9c4dd"/><text x="126" y="8" class="axis">同类品种合计</text></g>';
-    svg+='</svg>';
-    $('mview').innerHTML='<div class="mv-head">月度趋势（'+(metric==='patients'?'去重患者数':'数量')+'）· 仅含筛选品种 · 鼠标悬停查看数值</div>'+svg
-      +'<div id="svgTip" style="display:none;position:absolute;background:rgba(30,41,59,.92);color:#fff;font-size:11.5px;padding:6px 10px;border-radius:5px;pointer-events:none;z-index:100;white-space:nowrap;font-variant-numeric:tabular-nums;box-shadow:0 2px 8px rgba(0,0,0,.2)"></div>';
-    // 绑定 tooltip 事件
-    const tipEl = document.getElementById('svgTip');
-    const pts = document.querySelectorAll('#shareTrendSvg .trend-pt');
-    pts.forEach(pt => {
-      pt.addEventListener('mouseenter', e => {
-        tipEl.innerHTML = '<b>'+pt.dataset.month+'</b><br>'
-          + '<span style="color:#8ab4f8">● 焦点：'+Number(pt.dataset.fv).toLocaleString()+'</span><br>'
-          + '<span style="color:#b9c4dd">● 同类品种：'+Number(pt.dataset.cv).toLocaleString()+'</span>';
-        tipEl.style.display='block';
-      });
-      pt.addEventListener('mousemove', e => {
-        const rect = document.getElementById('shareTrendSvg').getBoundingClientRect();
-        tipEl.style.left=(e.clientX - rect.left + 12)+'px';
-        tipEl.style.top=(e.clientY - rect.top - 40)+'px';
-      });
-      pt.addEventListener('mouseleave', () => { tipEl.style.display='none'; });
-    });
-  }
-  function renderProfile(){
-    const cd = (SHARE.data[st.cat] && SHARE.data[st.cat]._charts) || {};
-    const pbp = cd.profileByProd;
-    const BUCKETS=[['<18',x=>x<18],['18-29',x=>x>=18&&x<30],['30-39',x=>x<40],['40-49',x=>x<50],['50-59',x=>x<60],['60-69',x=>x<70],['70+',x=>x>=70]];
-    if(!pbp){ $('mview').innerHTML='<div class="empty">该适应症下暂无画像数据</div>'; return; }
-    const fp = getMviewProds();
-    const compSet = fp ? [...fp].filter(p=>p!==st.focus) : Object.keys(pbp).filter(p=>p!==st.focus);
-    const fRec = pbp[st.focus] || {age:new Array(BUCKETS.length).fill(0), sex:{男:0,女:0,未知:0}, total:0};
-    const cAge=new Array(BUCKETS.length).fill(0), cSex={男:0,女:0,未知:0};
-    for(const p of compSet){ const rec=pbp[p]; if(!rec) continue; rec.age.forEach((v,i)=> cAge[i]+=v); cSex.男+=rec.sex.男; cSex.女+=rec.sex.女; cSex.未知+=rec.sex.未知; }
-    const fTot=fRec.age.reduce((a,b)=>a+b,0)||1, cTot=cAge.reduce((a,b)=>a+b,0)||1;
-    const fST=(fRec.sex.男+fRec.sex.女+fRec.sex.未知)||1, cST=(cSex.男+cSex.女+cSex.未知)||1;
-    const fAge=fRec.age;
-    let ageRows=fAge.map((v,i)=>'<tr><td>'+BUCKETS[i][0]+'</td><td class="num">'+(v/fTot*100).toFixed(1)+'%</td><td class="num">'+(cAge[i]/cTot*100).toFixed(1)+'%</td></tr>').join('');
-    let ageBars=fAge.map((v,i)=>{
-      const fp1=(v/fTot*100).toFixed(1), cp1=(cAge[i]/cTot*100).toFixed(1);
-      return '<div class="bar-row"><div class="bar-name">'+BUCKETS[i][0]+'·焦点</div><div class="bar-track"><div class="bar-fill" style="width:'+fp1+'%" data-tip="'+BUCKETS[i][0]+'·焦点：'+fp1+'%"></div></div><div class="bar-val">'+fp1+'%</div></div>'
-           + '<div class="bar-row"><div class="bar-name">'+BUCKETS[i][0]+'·同类品种</div><div class="bar-track"><div class="bar-fill" style="width:'+cp1+'%;background:#c2cce0" data-tip="'+BUCKETS[i][0]+'·同类品种合计：'+cp1+'%"></div></div><div class="bar-val">'+cp1+'%</div></div>';
-    }).join('');
-    let sexRows=[['男'],['女'],['未知']].map(b=>'<tr><td>'+b[0]+'</td><td class="num">'+(fRec.sex[b[0]]/fST*100).toFixed(1)+'%</td><td class="num">'+(cSex[b[0]]/cST*100).toFixed(1)+'%</td></tr>').join('');
-    let sexBars=[['男'],['女'],['未知']].map(b=>{
-      const fp1=(fRec.sex[b[0]]/fST*100).toFixed(1), cp1=(cSex[b[0]]/cST*100).toFixed(1);
-      return '<div class="bar-row"><div class="bar-name">'+b[0]+'·焦点</div><div class="bar-track"><div class="bar-fill" style="width:'+fp1+'%" data-tip="'+b[0]+'·焦点：'+fp1+'%"></div></div><div class="bar-val">'+fp1+'%</div></div>'
-           + '<div class="bar-row"><div class="bar-name">'+b[0]+'·同类品种</div><div class="bar-track"><div class="bar-fill" style="width:'+cp1+'%;background:#c2cce0" data-tip="'+b[0]+'·同类品种合计：'+cp1+'%"></div></div><div class="bar-val">'+cp1+'%</div></div>';
-    }).join('');
-    $('mview').innerHTML='<div class="mv-head">患者画像差异（组内占比 %·仅含筛选品种）</div>'
-      + '<h4>年龄分层</h4><table><thead><tr><th>年龄段</th><th class="num">焦点品种</th><th class="num">同类品种合计</th></tr></thead><tbody>'+ageRows+'</tbody></table><div class="bars">'+ageBars+'</div>'
-      + '<h4>性别</h4><table><thead><tr><th>性别</th><th class="num">焦点品种</th><th class="num">同类品种合计</th></tr></thead><tbody>'+sexRows+'</tbody></table><div class="bars">'+sexBars+'</div>';
-  }
-  function renderHosp(){
-    const catData=SHARE.data[st.cat];
-    const list=catData._charts.hospList||[];
-    if(!st.lockHosp && list.length) st.lockHosp=list[0].hosp;
-    let items=catData._charts.hospShare[st.lockHosp]||[];
-    const fp = getMviewProds();
-    if(fp) items = items.filter(it => fp.has(it.prod));
-    const tot=items.reduce((a,b)=>a+b.patients,0)||1;
-    const max=Math.max(...items.map(x=>x.patients),0)||1;
-    // 环比口径：最新月 vs 上月（与主工具一致），来自导出时预聚合的 hb.hospByProd
-    const hbMap = (catData._charts.hb && catData._charts.hb.hospByProd && catData._charts.hb.hospByProd[st.lockHosp]) || {};
-    const hbMonths = (catData._charts.hb && catData._charts.hb.months) || [];
-    const hbTxt = hbMonths.length>=2 ? ('环比口径 '+hbMonths[0]+' vs '+hbMonths[1]) : '';
-    const hbHtml = (cur, prev)=>{
-      if(prev>0){ const v=(cur-prev)/prev*100; const c=v>=0?'hb-up':'hb-down'; return '<span class="'+c+'">'+(v>=0?'▲':'▼')+Math.abs(v).toFixed(1)+'%</span><span class="hb-prev">'+num(prev)+'</span>'; }
-      return '<span class="hb-na">—</span>';
-    };
-    let rows=items.map(it=>{
-      const isF=it.prod===st.focus;
-      const hb = hbMap[it.prod];
-      const curP = hb ? hb.curP : it.patients;   // 单月口径
-      const curQ = hb ? hb.curQ : it.qty;
-      const curShare = tot>0 ? (curP/tot*100) : 0;
-      let shareHb='<span class="hb-na">—</span>', qtyHb='<span class="hb-na">—</span>';
-      if(hb){
-        const prevShare = hb.prevP>0 ? (hb.prevP/(tot - curP + hb.prevP)*100) : 0;   // 近似上月占比
-        shareHb = hbHtml(curShare, prevShare);
-        qtyHb = hbHtml(curQ, hb.prevQ);
-      }
-      return '<tr class="'+(isF?'c-focus':'')+'"><td>'+esc(prodLabel(it.prod))+(isF?' ★':'')+'</td>'+
-        '<td class="num">'+num(curP)+'</td>'+
-        '<td class="num">'+(hb?hbHtml(curP,hb.prevP):'<span class="hb-na">—</span>')+'</td>'+
-        '<td class="num">'+curShare.toFixed(1)+'%</td>'+
-        '<td class="num">'+shareHb+'</td>'+
-        '<td class="num">'+num(curQ)+'</td>'+
-        '<td class="num">'+qtyHb+'</td></tr>';
-    }).join('');
-    let bars=items.map(it=>{
-      const isF=it.prod===st.focus;
-      const hb = hbMap[it.prod];
-      const curP = hb ? hb.curP : it.patients;
-      const curQ = hb ? hb.curQ : it.qty;
-      const w=(curP/max*100).toFixed(1);
-      const color=isF?'linear-gradient(90deg,#3f6fb5,#5b8dd6)':'#c2cce0';
-      return '<div class="bar-row"><div class="bar-name">'+esc(prodLabel(it.prod))+(isF?' ★':'')+'</div><div class="bar-track"><div class="bar-fill" style="width:'+w+'%;background:'+color+'" data-tip="'+esc(prodLabel(it.prod))+'：'+num(curP)+' 人 ('+(curP/tot*100).toFixed(1)+'%)"></div></div><div class="bar-val">'+num(curP)+'</div></div>';
-    }).join('');
-    $('mview').innerHTML='<div class="mv-head">'+(st.lockHosp||'')+' · 各品种去重患者数（'+((hbMonths[1])||'本月')+' 单月）'+(hbTxt?' · 环比 '+hbTxt:'')+'</div><table><thead><tr><th>品种</th><th class="num">患者数</th><th class="num">患者数环比</th><th class="num">患者占比</th><th class="num">患者占比环比</th><th class="num">销量(转化后数量)</th><th class="num">销量环比</th></tr></thead><tbody>'+rows+'</tbody></table><div class="bars">'+bars+'</div>';
-  }
-  function renderMview(){
-    const el=$('mview'); if(!el) return;
-    const catData = SHARE.data[st.cat];
-    if(!catData || !catData._charts){ el.innerHTML='<div class="empty">该适应症暂无数据</div>'; return; }
-    const fd = catData[st.focus];
-    const m=st.mview;
-    if(m==='share') renderShare();
-    else if(m==='city') renderCity();
-    else if(m==='trend') renderTrend();
-    else if(m==='profile') renderProfile();
-    else if(m==='hosp') renderHosp();
-    const tc=$('trendCtl'); if(tc) tc.style.display = (m==='trend')?'':'none';
-    const hc=$('hospCtl'); if(hc) hc.style.display = (m==='hosp')?'':'none';
-  }
-  function buildHospSel(){
-    const sel=$('lockHospSel');
-    if(!sel) return;
-    const hlist=(SHARE.data[st.cat]&&SHARE.data[st.cat]._charts.hospList)||[];
-    let keep=st.lockHosp;
-    if(!hlist.some(o=>o.hosp===keep)) keep=hlist.length?hlist[0].hosp:'';
-    st.lockHosp=keep;
-    // 原生下拉：全部医院（按患者数降序），选中值回填
-    sel.innerHTML = hlist.map(o=>'<option value="'+esc(o.hosp)+'"'+(o.hosp===st.lockHosp?' selected':'')+'>'+esc(o.hosp)+'（'+num(o.patients)+' 人）</option>').join('');
-    if(!hlist.length) sel.innerHTML = '<option value="">无匹配医院</option>';
-    sel.value = keep;
-    sel.onchange = ()=>{
-      const h = sel.value;
-      if(h){ st.lockHosp=h; if(st.mview==='hosp') renderHosp(); }
-    };
-  }
-  function buildMviewProdFilter(){
-    const container = $('mviewProdFilter');
-    if(!container) return;
-    container.innerHTML = '';
-    const allProds = SHARE.meta.products;
-    // 全选（双击「全选」= 全部取消）
-    const allLab = document.createElement('label');
-    allLab.className = 'prod-all';
-    const allCb = document.createElement('input');
-    allCb.type = 'checkbox'; allCb.checked = (st.prodFilter === null);
-    allCb.addEventListener('change', ()=>{
-      if(allCb.checked){ st.prodFilter = null; }
-      else { st.prodFilter = new Set(allProds); }
-      syncMviewProdUI();
-      renderMview();
-    });
-    allLab.addEventListener('dblclick', e=>{
-      e.preventDefault();
-      allCb.checked = false;
-      st.prodFilter = new Set();   // 双击全选 = 全部取消
-      syncMviewProdUI();
-      renderMview();
-    });
-    allLab.appendChild(allCb); allLab.appendChild(document.createTextNode('全选'));
-    container.appendChild(allLab);
-    // 各品种
-    allProds.forEach(p => {
-      const lab = document.createElement('label');
-      const cb = document.createElement('input');
-      cb.type = 'checkbox'; cb.value = p;
-      cb.checked = (st.prodFilter === null || st.prodFilter.has(p));
-      cb.addEventListener('change', ()=>{
-        syncMviewProdFilterState();
-        renderMview();
-      });
-      lab.appendChild(cb); lab.appendChild(document.createTextNode(prodLabel(p)));
-      container.appendChild(lab);
-    });
-  }
-  function syncMviewProdFilterState(){
-    const cbs = document.querySelectorAll('#mviewProdFilter input[type="checkbox"]:not(.prod-all input)');
-    const allCb = document.querySelector('#mviewProdFilter .prod-all input');
-    const allProds = SHARE.meta.products;
-    let checked = 0;
-    const selected = new Set();
-    cbs.forEach(cb => { if(cb.checked){ selected.add(cb.value); checked++; } });
-    if(checked === allProds.length){
-      st.prodFilter = null;
-      if(allCb) allCb.checked = true;
-    } else if(checked === 0){
-      st.prodFilter = null;
-      if(allCb) allCb.checked = true;
-      cbs.forEach(cb => cb.checked = true);
-    } else {
-      st.prodFilter = selected;
-      if(allCb) allCb.checked = false;
-    }
-  }
-  function syncMviewProdUI(){
-    const cbs = document.querySelectorAll('#mviewProdFilter input[type="checkbox"]:not(.prod-all input)');
-    const allCb = document.querySelector('#mviewProdFilter .prod-all input');
-    const isAll = (st.prodFilter === null);
-    if(allCb) allCb.checked = isAll;
-    cbs.forEach(cb => { cb.checked = isAll || (st.prodFilter && st.prodFilter.has(cb.value)); });
-  }
-  function getMviewProds(){
-    if(st.prodFilter === null) return null;
-    const s = new Set(st.prodFilter);
-    s.add(st.focus);  // 焦点始终保留
-    return s;
-  }
-  function init(){
-    const ct=$('catTabs');
-    SHARE.meta.cats.forEach(c=>{ const b=document.createElement('button'); b.className='tab'+(c===st.cat?' active':''); b.textContent=c; b.onclick=()=>{st.cat=c;sync();}; ct.appendChild(b); });
-    if(hasMulti){
-      const mt=$('mviewTabs');
-      const mvNames={share:'同类品种份额',city:'城市视角',trend:'时间趋势',profile:'患者画像',hosp:'医院份额'};
-      mvKeys.forEach(m=>{ const b=document.createElement('button'); b.className='tab'+(m===st.mview?' active':''); b.textContent=mvNames[m]; b.onclick=()=>{ st.mview=m; [...mt.children].forEach(x=>x.classList.remove('active')); b.classList.add('active'); renderMview(); }; mt.appendChild(b); });
-      const mcs=$('mviewCatSel');
-      if(mcs){
-        SHARE.meta.cats.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=c; if(c===st.cat)o.selected=true; mcs.appendChild(o); });
-        mcs.onchange=()=>{ st.cat=mcs.value; sync(); };
-      }
-      // 品种筛选
-      buildMviewProdFilter();
-    }
-    const fs=$('focusSel');
-    SHARE.meta.products.forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; if(p===st.focus) o.selected=true; fs.appendChild(o); });
-    fs.onchange=()=>{ st.focus=fs.value; sync(); };
-    const ms=$('modeSel');
-    if(ms){ ms.value=st.mode; ms.onchange=e=>{ st.mode=e.target.value; sync(); }; }
-    $('sortSel').value = st.sort;
-    $('sortSel').onchange=e=>{ st.sort=e.target.value; sync(); };
-    const ts=$('trendSel');
-    if(ts){ ts.value=st.trendMetric; ts.onchange=e=>{ st.trendMetric=e.target.value; if(st.mview==='trend') renderTrend(); }; }
-    sync();
-  }
-  init();
-})();
-<\/script>
-</body></html>`;
+  ${tablesHtml}
+  ${multiHtml}
+  <div class="foot">本快照由「同类品种分析工具」生成，仅含聚合与脱敏后的结果数据，未包含任何患者级原始记录（oneid / 开票抬头 / 逐条处方）。医院名称与医生代号均按主工具当前脱敏设置输出。</div>
+</div></body></html>`;
 }
 
 /* ============ 事件绑定 ============ */
@@ -3796,7 +3588,7 @@ document.getElementById('prodMask').addEventListener('change', ()=>{
 });
 document.getElementById('recalc').addEventListener('click', recalcAsync);
 document.getElementById('exportBtn').addEventListener('click', exportExcel);
-/* ============ 导出分享版 · 内容选项弹窗 ============ */
+/* ============ 导出脱敏快照 · 内容选项弹窗 ============ */
 function presentCats(){
   const {start,end}=getWindow();
   const inWin=RAW.filter(r=> r.d>=start && r.d<=end);
@@ -3863,7 +3655,7 @@ document.getElementById('optSections').addEventListener('change', e=>{
   document.querySelectorAll('#optMulti input').forEach(i=>{ i.disabled=!multiOn; });
 });
 
-/* 导出分享版：确认后自动落盘 + 起服务 + 弹窗展示链接+二维码 */
+/* 导出脱敏快照：确认后自动落盘 + 起服务 + 弹窗展示链接+二维码 */
 let _lastShareHtml='';
 function showShareDone(link, note){
   const d=document.getElementById('shareDone'); if(!d) return; d.classList.remove('hidden');
@@ -3888,10 +3680,10 @@ document.getElementById('shareCopyBtn').addEventListener('click', ()=>{
 
 // 远程部署按钮：纯前端无法自动上云，点击后提示用户去对话说「部署」
 document.getElementById('shareRemoteBtn').addEventListener('click', ()=>{
-  const tip=document.getElementById('remoteTip');
-  if(tip){
-    tip.innerHTML='✅ 分享版已就绪于 <code>share_preview/</code>。<b>请在对话中说「部署」</b>，我立即上传云端并生成公网链接 + 二维码（数据已脱敏，无底表 / oneid / 原始处方）。';
-  }
+    const tip=document.getElementById('remoteTip');
+    if(tip){
+      tip.innerHTML='✅ 快照已就绪于 <code>share_preview/</code>。<b>请在对话中说「部署」</b>，我立即上传云端并生成公网链接 + 二维码（数据已脱敏，无底表 / oneid / 原始处方）。';
+    }
   const btn=document.getElementById('shareRemoteBtn');
   btn.textContent='✅ 已就绪，去对话说「部署」';
   btn.disabled=true;
@@ -3960,7 +3752,7 @@ document.getElementById('shareModalOk').addEventListener('click', async ()=>{
     showShareDone(link, `已自动保存到 share_preview/。手机同 WiFi 扫码即可查看。如需远程访问，在本对话对我说「部署」。`);
   } else {
     // 服务没跑 → 提示启动
-    showShareDone('', '本地服务未运行，分享版仅下载到本地。请双击工作区的 serve.bat 启动服务后重新导出，即可获得扫码链接。（或直接把下载的 HTML 发给对方用浏览器打开）');
+    showShareDone('', '本地服务未运行，快照仅下载到本地。请双击工作区的 serve.bat 启动服务后重新导出，即可获得扫码链接。（或直接把下载的 HTML 发给对方用浏览器打开）');
   }
 
   btn.disabled=false; btn.textContent='确认导出';
