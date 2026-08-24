@@ -1089,6 +1089,7 @@ function buildIndFilter(){
   });
   const allA=document.getElementById('indAll'), noneA=document.getElementById('indNone');
   if(allA) allA.onclick=()=>{ box.querySelectorAll('input').forEach(c=>c.checked=true); STATE.indFilter=null; recalcAsync(); buildIndFilter(); };
+  if(allA) allA.ondblclick=e=>{ e.preventDefault(); box.querySelectorAll('input').forEach(c=>c.checked=false); STATE.indFilter=new Set(); recalcAsync(); buildIndFilter(); };   // 双击全选=全部取消
   if(noneA) noneA.onclick=()=>{ box.querySelectorAll('input').forEach(c=>c.checked=false); STATE.indFilter=new Set(); recalcAsync(); buildIndFilter(); };
 }
 function buildResIndSel(){
@@ -1321,7 +1322,7 @@ function buildChartProdFilter(){
   const container = document.getElementById('chartProdFilter');
   if(!container) return;
   container.innerHTML = '';
-  // 全选
+  // 全选（双击「全选」= 全部取消）
   const allLab = document.createElement('label');
   allLab.className = 'prod-all';
   const allCb = document.createElement('input');
@@ -1329,6 +1330,13 @@ function buildChartProdFilter(){
   allCb.addEventListener('change', ()=>{
     if(allCb.checked){ STATE.chartProds = null; }
     else { STATE.chartProds = new Set(); }  // 取消全选=清空（仅保留焦点）
+    syncProdFilterUI();
+    renderCharts();
+  });
+  allLab.addEventListener('dblclick', e=>{
+    e.preventDefault();
+    allCb.checked = false;
+    STATE.chartProds = new Set();   // 双击全选 = 全部取消
     syncProdFilterUI();
     renderCharts();
   });
@@ -3347,7 +3355,7 @@ function renderShareDoc(share){
     <div class="ctl"><label>品种筛选</label><div id="mviewProdFilter" class="chart-prod-filter"></div></div>
     <div class="ctl"><label>适应症大类</label><select id="mviewCatSel"></select></div>
     <div class="ctl" id="trendCtl" style="display:none"><label>趋势指标</label><select id="trendSel"><option value="patients">患者数</option><option value="qty">销量(转化后数量)</option></select></div>
-    <div class="ctl" id="hospCtl" style="display:none"><label>锁定医院</label><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><input type="text" id="hospSearchSp" placeholder="搜索医院…" autocomplete="off" style="width:150px;padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px;"><select id="lockHospSel" style="min-width:200px;"></select></div></div>
+    <div class="ctl" id="hospCtl" style="display:none"><label>锁定医院</label><select id="lockHospSel" style="min-width:260px;"></select></div>
   </div>
   <div id="mview"></div>`:''}
   <div class="foot">本分享版由「同类品种分析工具」生成，仅含聚合与脱敏后的结果数据，未包含任何患者级原始记录（oneid / 开票抬头 / 逐条处方）。对方可在本页内切换适应症大类与焦点品种${(sec.multi&&(mv.share||mv.city||mv.trend||mv.profile||mv.hosp))?'、查看多维分析视角':''}，但底表原始数据不出本机、不可见、不可改脱敏。导出内容：${contentTxt.join(' + ')||'（无）'}。</div>
@@ -3617,27 +3625,19 @@ const SHARE = ${json};
     const hc=$('hospCtl'); if(hc) hc.style.display = (m==='hosp')?'':'none';
   }
   function buildHospSel(){
-    const input=$('hospSearchSp'); const sel=$('lockHospSel');
-    if(!input || !sel) return;
+    const sel=$('lockHospSel');
+    if(!sel) return;
     const hlist=(SHARE.data[st.cat]&&SHARE.data[st.cat]._charts.hospList)||[];
     let keep=st.lockHosp;
     if(!hlist.some(o=>o.hosp===keep)) keep=hlist.length?hlist[0].hosp:'';
     st.lockHosp=keep;
     // 原生下拉：全部医院（按患者数降序），选中值回填
-    const fillSelect = (q)=>{
-      const s=(q||'').trim().toLowerCase();
-      const items = s ? hlist.filter(o=>o.hosp.toLowerCase().includes(s)) : hlist;
-      sel.innerHTML = items.map(o=>'<option value="'+esc(o.hosp)+'"'+(o.hosp===st.lockHosp?' selected':'')+'>'+esc(o.hosp)+'（'+num(o.patients)+' 人）</option>').join('');
-      if(!items.length) sel.innerHTML = '<option value="">无匹配医院</option>';
-    };
-    fillSelect('');
-    input.value = keep;
-    // 搜索框：输入即时过滤下拉
-    input.oninput = e=> fillSelect(e.target.value);
-    // 下拉选择：更新锁定医院并重绘
+    sel.innerHTML = hlist.map(o=>'<option value="'+esc(o.hosp)+'"'+(o.hosp===st.lockHosp?' selected':'')+'>'+esc(o.hosp)+'（'+num(o.patients)+' 人）</option>').join('');
+    if(!hlist.length) sel.innerHTML = '<option value="">无匹配医院</option>';
+    sel.value = keep;
     sel.onchange = ()=>{
       const h = sel.value;
-      if(h){ st.lockHosp=h; input.value=h; if(st.mview==='hosp') renderHosp(); }
+      if(h){ st.lockHosp=h; if(st.mview==='hosp') renderHosp(); }
     };
   }
   function buildMviewProdFilter(){
@@ -3645,7 +3645,7 @@ const SHARE = ${json};
     if(!container) return;
     container.innerHTML = '';
     const allProds = SHARE.meta.products;
-    // 全选
+    // 全选（双击「全选」= 全部取消）
     const allLab = document.createElement('label');
     allLab.className = 'prod-all';
     const allCb = document.createElement('input');
@@ -3653,6 +3653,13 @@ const SHARE = ${json};
     allCb.addEventListener('change', ()=>{
       if(allCb.checked){ st.prodFilter = null; }
       else { st.prodFilter = new Set(allProds); }
+      syncMviewProdUI();
+      renderMview();
+    });
+    allLab.addEventListener('dblclick', e=>{
+      e.preventDefault();
+      allCb.checked = false;
+      st.prodFilter = new Set();   // 双击全选 = 全部取消
       syncMviewProdUI();
       renderMview();
     });
@@ -3813,12 +3820,22 @@ document.getElementById('shareBtn').addEventListener('click', openShareModal);
 document.getElementById('shareModalClose').addEventListener('click', closeShareModal);
 document.getElementById('shareModalCancel').addEventListener('click', closeShareModal);
 document.getElementById('shareModal').addEventListener('click', e=>{ if(e.target.id==='shareModal') closeShareModal(); });
-document.querySelectorAll('#shareModal .all-link').forEach(a=>a.addEventListener('click', ()=>{
-  const kind=a.getAttribute('data-all');
-  if(kind==='cats') document.querySelectorAll('#optCats input').forEach(i=>i.checked=true);
-  else if(kind==='products') document.querySelectorAll('#optProducts input').forEach(i=>i.checked=true);
-  else if(kind==='multi') document.querySelectorAll('#optMulti input').forEach(i=>i.checked=true);
-}));
+document.querySelectorAll('#shareModal .all-link').forEach(a=>{
+  a.addEventListener('click', ()=>{
+    const kind=a.getAttribute('data-all');
+    if(kind==='cats') document.querySelectorAll('#optCats input').forEach(i=>i.checked=true);
+    else if(kind==='products') document.querySelectorAll('#optProducts input').forEach(i=>i.checked=true);
+    else if(kind==='multi') document.querySelectorAll('#optMulti input').forEach(i=>i.checked=true);
+  });
+  // 双击「全选」= 全部取消
+  a.addEventListener('dblclick', e=>{
+    e.preventDefault();
+    const kind=a.getAttribute('data-all');
+    if(kind==='cats') document.querySelectorAll('#optCats input').forEach(i=>i.checked=false);
+    else if(kind==='products') document.querySelectorAll('#optProducts input').forEach(i=>i.checked=false);
+    else if(kind==='multi') document.querySelectorAll('#optMulti input').forEach(i=>i.checked=false);
+  });
+});
 document.getElementById('optSections').addEventListener('change', e=>{
   const multiOn=document.querySelector('#optSections input[data-sec="multi"]').checked;
   document.getElementById('optMultiGroup').style.opacity = multiOn? '1':'0.45';
@@ -3953,6 +3970,10 @@ document.querySelectorAll('.vtab').forEach(b=>{
 
 document.getElementById('compAll').addEventListener('click', ()=>{
   document.querySelectorAll('#compList input').forEach(cb=>{cb.checked=true; STATE.competitors.add(cb.value);}); recalcAsync();
+});
+document.getElementById('compAll').addEventListener('dblclick', e=>{
+  e.preventDefault();
+  document.querySelectorAll('#compList input').forEach(cb=>{cb.checked=false; STATE.competitors.delete(cb.value);}); recalcAsync();
 });
 document.getElementById('compNone').addEventListener('click', ()=>{
   document.querySelectorAll('#compList input').forEach(cb=>{cb.checked=false; STATE.competitors.delete(cb.value);}); recalcAsync();
