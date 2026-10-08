@@ -352,6 +352,7 @@
               <div class="tab" data-cat="皮科">皮科</div>
               <div class="tab" data-cat="消化">消化</div>
               <div class="tab" data-cat="关节">关节</div>
+              <div class="tab" data-cat="斑秃">斑秃</div>
               <div class="tab" data-cat="其他">其他</div>
             </div>
           </div>
@@ -715,6 +716,8 @@ function categorize(raw){
   if(window.IND_MAP[s]) return window.IND_MAP[s];
   const cl = s.replace(/[\s，。、；：""''（）()\[\]]+/g,'');
   if(window.IND_MAP[cl]) return window.IND_MAP[cl];
+  /* 斑秃关键词兜底（字典未收录的新写法；雄激素性/脂溢性脱发、假性斑秃不属于斑秃） */
+  if(/斑秃|全秃|普秃/.test(cl) && !/雄激素|脂溢|假性/.test(cl)) return ['斑秃','斑秃'];
   return [s,'未分类'];
 }
 /* 适应症映射修正：默认快照 + 本地覆盖（界面改规则后记忆在浏览器，重算全局生效） */
@@ -754,7 +757,7 @@ function assignDept(indRaw, rawDept){
   // ② 原始科室为空 → 才用适应症大类兜底推导一个科室
   const [ni, cat] = categorize(indRaw);
   if(cat && cat!=='未分类'){
-    return ({'皮科':'皮肤科','消化':'消化内科','关节':'风湿免疫科','其他':'其他科'})[cat] || '未知';
+    return ({'皮科':'皮肤科','消化':'消化内科','关节':'风湿免疫科','斑秃':'皮肤科','其他':'其他科'})[cat] || '未知';
   }
   return '未知';
 }
@@ -2730,8 +2733,8 @@ function build12SheetWorkbook(share){
   const wb = X.utils.book_new();
   const m = share.meta;
   const focus = m.focus;
-  const cats = m.cats;                                  // ['整体','皮科','消化','关节','其他']
-  const detailCats = ['整体','皮科','消化','关节'].filter(c => cats.includes(c));
+  const cats = m.cats;                                  // ['整体','皮科','消化','关节','斑秃','其他']
+  const detailCats = ['整体','皮科','消化','关节','斑秃'].filter(c => cats.includes(c));
   const prodCount = (m.products && m.products.length) ? m.products.length : (typeof PRODUCTS!=='undefined' ? PRODUCTS.length : 9);
 
   // ---- 医生 / 医院 明细（左右分列）----
@@ -3188,7 +3191,7 @@ function buildShareData(opts){
   const scoped = inWin.filter(r => !STATE.indFilter || STATE.indFilter.has(r.ind));
   const byCat = {整体: scoped};
   for(const r of scoped){ const c=r.cat||'其他'; if(c==='整体') continue; (byCat[c] || (byCat[c]=[])).push(r); }
-  const catOrder = ['整体','皮科','消化','关节','其他'];
+  const catOrder = ['整体','皮科','消化','关节','斑秃','其他'];
   const allCats = catOrder.filter(c=> byCat[c] && byCat[c].length);
   // 医生/医院明细专用原始数据：回滚12月窗口（基准月=最新月），仅用于 DOT 列；患者人数另用窗口内数据
   const {start:dotS, end:dotE} = dotWindow();   // 只算一次，避免 filter 回调里 O(N²) 全量扫描
@@ -3937,7 +3940,7 @@ function presentCats(){
   const inWin=RAW.filter(r=> r.d>=start && r.d<=end);
   const byCat={整体:inWin};
   for(const r of inWin){ const c=r.cat||'其他'; if(c==='整体') continue; (byCat[c]||(byCat[c]=[])).push(r); }
-  const order=['整体','皮科','消化','关节','其他'];
+  const order=['整体','皮科','消化','关节','斑秃','其他'];
   return order.filter(c=> byCat[c] && byCat[c].length);
 }
 function fillShareChecks(){
